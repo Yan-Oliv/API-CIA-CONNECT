@@ -29,52 +29,57 @@ class NotificationController extends Controller
     public function search(Request $request)
     {
         $userId   = (int) $request->input('user_id');
-        $userRole = (string) $request->input('user_role');
+        $role     = (string) $request->input('user_role');
         $context  = (string) $request->input('context');
         $filialId = (string) $request->input('filial_id');
-
-        if (!$userId || !$userRole) {
-            return response()->json(['error' => 'Parâmetros inválidos'], 422);
+    
+        $onlyUnread = $request->boolean('only_unread', true);
+    
+        $query = Notificacoes::query();
+    
+        if ($onlyUnread) {
+            $query->where('read', false);
+        }
+    
+        $query->where('type', '!=', 'logs')
+              ->where(function ($q) use ($userId, $role, $filialId, $context) {
+    
+                  // SISTEMA → criador
+                  $q->where(function ($q) use ($userId) {
+                      $q->where('type', 'sistema')
+                        ->where('created_by', $userId);
+                  });
+    
+                  // ATUALIZAÇÃO → contexto + role OU filial
+                  $q->orWhere(function ($q) use ($role, $filialId, $context) {
+                      $q->where('type', 'atualizacao')
+                        ->where('context', $context)
+                        ->where(function ($q) use ($role, $filialId) {
+                            $q->whereJsonContains('visible_to_roles', $role)
+                              ->orWhereJsonContains('visible_to_filial', $filialId);
+                        });
+                  });
+    
+                  // URGENTE / IMPORTANTE / ATENÇÃO
+                  $q->orWhere(function ($q) use ($userId) {
+                      $q->whereIn('type', ['urgente', 'importante', 'atencao'])
+                        ->whereJsonContains('visible_to_users', $userId);
+                  });
+              });
+    
+        // ADM vê tudo (respeitando contexto)
+        if ($role === 'ADM') {
+            $query = Notificacoes::query()
+                ->where('context', $context)
+                ->when($onlyUnread, fn ($q) => $q->where('read', false));
         }
 
-        // ADM vê tudo
-        if ($userRole === 'ADM') {
-            return response()->json(
-                Notificacoes::orderByDesc('timestamp')->get(),
-                200
-            );
-        }
-
-        $query = Notificacoes::query()
-            ->where(function ($q) use ($userId, $userRole, $filialId, $context) {
-
-                // SISTEMA → criador
-                $q->where(function ($q) use ($userId) {
-                    $q->where('type', 'sistema')
-                    ->where('created_by', $userId);
-                })
-
-                // ATUALIZACAO → mesmo role OU mesma filial
-                ->orWhere(function ($q) use ($userRole, $filialId) {
-                    $q->where('type', 'atualizacao')
-                    ->where(function ($q) use ($userRole, $filialId) {
-                        $q->whereJsonContains('visible_to_roles', $userRole)
-                            ->orWhereJsonContains('visible_to_filial', $filialId);
-                    });
-                })
-
-                // URGENTE | IMPORTANTE | ATENCAO → usuário listado
-                ->orWhere(function ($q) use ($userId) {
-                    $q->whereIn('type', ['urgente', 'importante', 'atencao'])
-                    ->whereJsonContains('visible_to_users', $userId);
-                });
-            })
-            ->orderByDesc('timestamp');
-
-        return response()->json($query->get(), 200);
+    
+        return response()->json(
+            $query->orderByDesc('timestamp')->get(),
+            200
+        );
     }
-
-
     /**
      * Cria nova notificação vinda do seu próprio backend (ex.: jobs, webhooks).
      * Tipicamente o Flutter cria pelo próprio app; este endpoint é útil para
@@ -94,6 +99,10 @@ class NotificationController extends Controller
 
         $data['read']      = false;
         $data['timestamp'] = now();
+        $data['visible_to_roles'] = $data['visible_to_roles']
+            ? array_values($data['visible_to_roles'])
+            : null;
+
 
         $noty = Notificacoes::create($data);
 
@@ -108,12 +117,17 @@ class NotificationController extends Controller
      */
     public function markAllRead(Request $request)
     {
-        $userId = (int) $request->input('user_id');
-
-        Notificacoes::whereJsonContains('visible_to_users', $userId)
-            ->orWhere('created_by', $userId)
+        $userId  = (int) $request->input('user_id');
+        $context = (string) $request->input('context');
+    
+        Notificacoes::where('context', $context)
+            ->where(function ($q) use ($userId) {
+                $q->whereJsonContains('visible_to_users', $userId)
+                  ->orWhere('created_by', $userId);
+            })
             ->update(['read' => true]);
-
+    
         return response()->json(['message' => 'Todas lidas'], 200);
     }
+
 }
