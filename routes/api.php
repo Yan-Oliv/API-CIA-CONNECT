@@ -64,6 +64,7 @@ Route::post('/backup/enviar', [BackupController::class, 'enviarBackup']);
 Route::get('/users', [UsersController::class, 'index']);
 Route::put('/users/{id}/rec', [UsersController::class, 'resetPasswordByEmail']);
 Route::post('/user/{email}', [UsersController::class, 'listEmail']);
+Route::post('/', [UsersController::class, 'cad']);
 
 // Consultas confirm routes
 Route::get('/consultas', [ConsultasController::class, 'index']);
@@ -107,7 +108,6 @@ Route::middleware('auth:sanctum')->group(function() {
     Route::prefix('users')->group(function () {
         Route::get('/s', [UsersController::class, 'search']);
         Route::get('/{id}', [UsersController::class, 'filter']);
-        Route::post('/', [UsersController::class, 'cad']);
         Route::put('/{id}', [UsersController::class, 'edit']);
         Route::put('/{id}/change', [UsersController::class, 'changePassword']);
         Route::delete('/{id}', [UsersController::class, 'delete']);
