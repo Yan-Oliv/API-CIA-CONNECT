@@ -17,7 +17,6 @@ class Mensagem extends BaseModel
         'cliente_id',
         'title',
         'texto',
-        'imagem',
         'user_id',
     ];
 

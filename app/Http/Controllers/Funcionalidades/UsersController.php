@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use App\Models\Funcionalidades\Users;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use App\Services\SupabaseStorageService;
+
 
 
 class UsersController extends Controller
@@ -25,7 +27,9 @@ class UsersController extends Controller
 
         foreach ($users as $user) {
             if ($user->perfil) {
-                $user->perfil = 'data:image/jpeg;base64,' . base64_encode($user->perfil);
+                $user->perfil = $user->perfil
+                    ? env('SUPABASE_URL') . '/storage/v1/object/public/' . $user->perfil
+                    : null;
             }
         }
         
@@ -69,8 +73,10 @@ class UsersController extends Controller
         $userData = $user->only(['id', 'name', 'email', 'telefone', 'role', 'filial_id', 'first_login']);
 
         if ($user->perfil) {
-            $userData['perfil'] = 'data:image/jpeg;base64,' . base64_encode($user->perfil);
+            $storage = new SupabaseStorageService();
+            $user->perfil = $storage->getPublicUrl($user->perfil);
         }
+
 
         return response()->json([
             'status' => 'OK',
@@ -88,7 +94,8 @@ class UsersController extends Controller
 
         // Se houver imagem, converte para base64 com prefixo do tipo
         if ($user->perfil) {
-            $user->perfil = 'data:image/jpeg;base64,' . base64_encode($user->perfil);
+            $storage = new SupabaseStorageService();
+            $user->perfil = $storage->getPublicUrl($user->perfil);
         }
 
         return response()->json($user, 200);
@@ -97,7 +104,6 @@ class UsersController extends Controller
     public function cad(Request $requisitar)
     {
         $valide = $requisitar->validate([
-            'perfil'      => 'nullable|string',
             'name'        => 'required|string|max:255',
             'email'       => 'required|string|max:255|unique:users,email',
             'telefone'    => 'nullable|string|max:20',
@@ -107,12 +113,8 @@ class UsersController extends Controller
             'first_login' => 'boolean',
         ]);
 
+        $valide['perfil'] = 'avatars/default_profile.png';
         $valide['password'] = Hash::make($valide['password']);
-
-        if ($requisitar->filled('perfil')) {
-            $base64 = preg_replace('/^data:image\/\w+;base64,/', '', $requisitar->perfil);
-            $valide['perfil'] = base64_decode($base64);
-        }
 
         $user = Users::create($valide);
 
@@ -146,8 +148,20 @@ class UsersController extends Controller
         }
 
         if ($requisitar->filled('perfil')) {
+            preg_match('/data:image\/(\w+);base64,/', $requisitar->perfil, $matches);
+            $extension = $matches[1] ?? 'jpg';
+
             $base64 = preg_replace('/^data:image\/\w+;base64,/', '', $requisitar->perfil);
-            $valide['perfil'] = base64_decode($base64);
+
+            $storage = new SupabaseStorageService();
+
+            $path = $storage->uploadAvatar(
+                $user->id,
+                $base64,
+                $extension
+            );
+
+            $valide['perfil'] = $path;
         }
 
         $user->update($valide);

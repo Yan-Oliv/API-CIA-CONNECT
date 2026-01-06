@@ -36,9 +36,6 @@ class MensagensController extends Controller
                 'user_id'     => $mensagem->user_id,
                 'user'        => $mensagem->user?->name,
                 'last_update' => $mensagem->last_update,
-                'imagem'      => $mensagem->imagem
-                    ? 'data:image/jpeg;base64,' . base64_encode($mensagem->imagem)
-                    : null,
             ];
         });
 
@@ -54,26 +51,8 @@ class MensagensController extends Controller
             'cliente_id' => 'nullable|integer|exists:clientes,id',
             'title'      => 'required|string|max:255',
             'texto'      => 'nullable|string',
-            'imagem'     => 'nullable|string', // base64
             'user_id'    => 'required|integer|exists:users,id',
         ]);
-
-        // Tratamento correto para BYTEA (Postgres)
-        if (!empty($validated['imagem'])) {
-            $base64 = $validated['imagem'];
-
-            if (Str::startsWith($base64, 'data:image/')) {
-                $base64 = preg_replace('/^data:image\/\w+;base64,/', '', $base64);
-            }
-
-            $validated['imagem'] = base64_decode($base64, true);
-
-            if ($validated['imagem'] === false) {
-                return response()->json([
-                    'error' => 'Imagem inválida (base64 malformado)'
-                ], 422);
-            }
-        }
 
         $mensagem = Mensagem::create($validated);
 

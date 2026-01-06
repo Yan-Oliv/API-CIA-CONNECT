@@ -2,6 +2,7 @@
 
 namespace App\Models\Funcionalidades;
 
+use App\Models\Referencias\Filial;
 use App\Models\Referencias\Cliente;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
