@@ -14,6 +14,13 @@ use App\Services\SupabaseStorageService;
 
 class UsersController extends Controller
 {
+    private SupabaseStorageService $storage;
+
+    public function __construct(SupabaseStorageService $storage)
+    {
+	$this->storage = $storage;
+    }
+
     public function index()
     {
         return response()->json([
@@ -28,7 +35,7 @@ class UsersController extends Controller
         foreach ($users as $user) {
             if ($user->perfil) {
                 $user->perfil = $user->perfil
-                    ? env('SUPABASE_URL') . '/storage/v1/object/public/' . $user->perfil
+                    ? $this->storage->getPublicUrl($user->perfil)
                     : null;
             }
         }
@@ -73,8 +80,7 @@ class UsersController extends Controller
         $userData = $user->only(['id', 'name', 'email', 'telefone', 'role', 'filial_id', 'first_login']);
 
         if ($user->perfil) {
-            $storage = new SupabaseStorageService();
-            $user->perfil = $storage->getPublicUrl($user->perfil);
+            $user->perfil = $this->storage->getPublicUrl($user->perfil);
         }
 
 
@@ -94,8 +100,7 @@ class UsersController extends Controller
 
         // Se houver imagem, converte para base64 com prefixo do tipo
         if ($user->perfil) {
-            $storage = new SupabaseStorageService();
-            $user->perfil = $storage->getPublicUrl($user->perfil);
+            $user->perfil = $this->storage->getPublicUrl($user->perfil);
         }
 
         return response()->json($user, 200);
@@ -153,9 +158,8 @@ class UsersController extends Controller
 
             $base64 = preg_replace('/^data:image\/\w+;base64,/', '', $requisitar->perfil);
 
-            $storage = new SupabaseStorageService();
 
-            $path = $storage->uploadAvatar(
+            $path = $this->storage->uploadAvatar(
                 $user->id,
                 $base64,
                 $extension

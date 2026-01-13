@@ -15,24 +15,36 @@ class AuthController extends Controller
 
     public function login(Request $request)
     {
-        
         if (Auth::attempt($request->only('email', 'password'))){
-            return response()->json(['message' => 'Authorization!', 'status' => 200, 'token' => $request->user()->createToken('ciacat')->plainTextToken]);
+	    $user = Auth::user();
+            return response()->json([
+		'message' => 'Authorization!', 
+		'status' => 200, 
+		'token' => $request->user()->createToken('ciacat')->plainTextToken,
+		'user' => [
+			'id' => $user->id,
+			'name' => $user->name,
+			'email' => $user->email,
+			'role' => $user->role,
+			'filial_id' => $user->filial_id,
+			]
+		]);
         }
         return response()->json(['message' => 'Not Authorization!', 'status' => 403]);
     }
 
     public function logout(Request $request)
-    {
-        \Log::info('Usuário:', ['user' => $request->user()]);
+	{
+    		if ($request->user()) {
+        		$request->user()->currentAccessToken()?->delete();
+    		}
 
-        $user = $request->user();
-        if($user){
-            $request->user()->currentAccessToken()->delete();
-            return response()->json(['message' => 'Token Revoked', 'status' => 200]);
-        }
-        return response()->json(['message' => 'Token not Revoked!', 'status' => 403]);
-    }
+    		return response()->json([
+        		'message' => 'Logout realizado',
+        		'status' => 200
+    		]);
+	}
+
 
     public function validateToken(Request $request)
     {

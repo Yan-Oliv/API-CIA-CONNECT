@@ -4,8 +4,8 @@
 <h4>Por Empresa:</h4>
 <pre>{{ print_r($porEmpresa, true) }}</pre>
 
-<h4>Por Buony:</h4>
-<pre>{{ print_r($porBuony, true) }}</pre>
+<h4>Por GR:</h4>
+<pre>{{ print_r($porGR, true) }}</pre>
 
 <h4>Por Status:</h4>
 <pre>{{ print_r($porStatus, true) }}</pre>
@@ -19,7 +19,7 @@
         <tr>
             <th>Empresa</th>
             <th>Motorista</th>
-            <th>Buony</th>
+            <th>GR</th>
             <th>Status</th>
             <th>Consulta</th>
             <th>Destino</th>
@@ -30,7 +30,7 @@
             <tr>
                 <td>{{ $item['empresa'] }}</td>
                 <td>{{ $item['motorista'] }}</td>
-                <td>{{ $item['buony'] }}</td>
+                <td>{{ $item['gr'] }}</td>
                 <td>{{ $item['status'] }}</td>
                 <td>{{ $item['consulta'] }}</td>
                 <td>{{ $item['destino'] }}</td>

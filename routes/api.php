@@ -109,6 +109,7 @@ Route::middleware(['auth:sanctum'])->prefix('config')->group(function () {
 Route::post('/log', [UsersController::class, 'login']);
 Route::match(['get', 'post'], '/login', [AuthController::class, 'login'])->name('login');
 Route::put('/users/{id}/rec', [UsersController::class, 'resetPasswordByEmail']);
+Route::post('/logout', [AuthController::class, 'logout']);
 
 /*
 |--------------------------------------------------------------------------
@@ -117,7 +118,6 @@ Route::put('/users/{id}/rec', [UsersController::class, 'resetPasswordByEmail']);
 */
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/validate', [AuthController::class, 'validateToken']);
-    Route::post('/logout', [AuthController::class, 'logout']);
 });
 
 /*
@@ -341,3 +341,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/clear', [LinksController::class, 'destroy']);
     });
 });
+
+/*
+|---------------------------------------------------------------------
+|		404 ROUTE
+|---------------------------------------------------------------------
+*/
+
+Route::options('/{any}', function () {
+    return response()->noContent();
+})->where('any', '.*');
+
+
+Route::any('/{any}', function () {
+    return response()->json(['message' => 'Not found'], 404);
+})->where('any', '.*');
+

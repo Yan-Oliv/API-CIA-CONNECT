@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Domain\Consultas\ConsultaMapper;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
@@ -17,12 +18,17 @@ class BackupConsultasCommand extends Command
 
     public function handle()
     {
+	Log::info('[BackupConsultas] Executado pelo scheduler', [
+             'hora' => now()->toDateTimeString(),
+             'total_consultas' => DB::table('consultas')->count(),
+        ]);
+
         try {
             $consultas = DB::table('consultas')->get();
 
             if ($consultas->isEmpty()) {
                 $this->info('Nenhuma consulta encontrada para backup.');
-                return;
+                return Command::SUCCESS;
             }
 
             $clientes = DB::table('clientes')->pluck('nome', 'id');
@@ -43,15 +49,17 @@ class BackupConsultasCommand extends Command
                     ? $filiais[$usuario->filial_id]
                     : 'Desconhecida';
 
+		$gr = ConsultaMapper::gr($c);
+
                 $porEmpresa[$empresa] = ($porEmpresa[$empresa] ?? 0) + 1;
-                $porGR[$c->buony] = ($porGR[$c->buony] ?? 0) + 1;
+                $porGR[$gr] = ($porGR[$gr] ?? 0) + 1;
                 $porStatus[$c->status] = ($porStatus[$c->status] ?? 0) + 1;
                 $porFilial[$filial] = ($porFilial[$filial] ?? 0) + 1;
 
                 $dados[] = [
                     'empresa'   => $empresa,
                     'motorista' => $c->motorista,
-                    'gr'        => $c->buony,
+                    'gr'        => $gr,
                     'status'    => $c->status,
                     'consulta'  => $c->consulta,
                     'destino'   => $c->destino,
@@ -91,8 +99,18 @@ class BackupConsultasCommand extends Command
             } else {
                 Log::warning('[Backup] Falha no envio. Dados preservados.');
             }
-        } catch (\Exception $e) {
-            Log::error('[BackupConsultasCommand] Erro: ' . $e->getMessage());
+
+	    return Command::SUCCESS;
+
+        } catch (\Throwable $e) {
+            Log::error('[BackupConsultasCommand] Erro inesperado: ', [
+		'message' => $e->getMessage(),
+		'file' => $e->getFile(),
+		'line' => $e->getLine(),
+		'trace' => $e->getTraceAsString(),
+	   ]);
+
+	   return Command::FAILURE;
         }
     }
 
@@ -104,16 +122,19 @@ class BackupConsultasCommand extends Command
             'Operacional' => [
                 'filialgo@ciacargas.com.br',
                 'ciacargasgo2@ciacargas.com.br',
+		'luiz.henrique@ciacargas.com.br',
             ],
             'Administrador' => ['yanoliveiragm@gmail.com'],
         ];
 
         $todosEnviados = true;
 
-        foreach ($emailGrupos as $grupo => $emails) {
+        foreach ($emailGrupos as $emails) {
             foreach ($emails as $email) {
                 try {
-                    Mail::raw("\nSegue em anexo o backup das consultas do dia.", function ($message) use ($email, $filePath, $fileName, $grupo) {
+                    Mail::raw(
+			"Segue em anexo o backup diário das consultas", 
+			function ($message) use ($email, $filePath, $fileName) {
                         $message->to($email)
                             ->subject('⚠️🚨 BACKUP DIÁRIO CONSULTAS - CIA CARGAS 🚨⚠️')
                             ->attach($filePath, [
@@ -121,8 +142,10 @@ class BackupConsultasCommand extends Command
                                 'mime' => 'application/pdf',
                             ]);
                     });
-                } catch (\Exception $e) {
-                    Log::error("[Backup][Email] Falha ao enviar para {$email}: " . $e->getMessage());
+                } catch (\Throwable $e) {
+                    Log::error("[Backup][Email] Falha ao enviar para {$email}: ", [
+			'exception' => $e,
+		    ]);
                     $todosEnviados = false;
                 }
             }
@@ -147,7 +170,9 @@ class BackupConsultasCommand extends Command
             }
 
             $response = Http::attach(
-                'document', file_get_contents($filePath), basename($filePath)
+                'document',
+	 	 file_get_contents($filePath),
+	 	 basename($filePath)
             )->post("https://api.telegram.org/bot{$botToken}/sendDocument", [
                 'chat_id' => $chatId,
                 'caption' => '📄 Backup diário das consultas - ' . now()->format('d/m/Y H:i'),
@@ -156,12 +181,11 @@ class BackupConsultasCommand extends Command
             if ($response->successful()) {
                 Log::info('[Telegram] Backup enviado com sucesso.');
                 return true;
-            } else {
-                Log::warning('[Telegram] Falha ao enviar: ' . $response->body());
-                return false;
-            }
-        } catch (\Exception $e) {
-            Log::error('[Telegram] Erro ao enviar: ' . $e->getMessage());
+    	    }
+        } catch (\Throwable $e) {
+            Log::error('[Telegram] Erro ao enviar: ', [
+		'exception' => $e,
+	    ]);
             return false;
         }
     }
