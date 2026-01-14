@@ -85,6 +85,8 @@ class LembreteController extends Controller
             'visivel_users.*' => 'integer|exists:users,id',
         ]);
 
+	$lembrete = null;
+
         DB::transaction(function () use (&$lembrete, $val) {
             $lembrete = Lembrete::create([
                 'titulo'   => $val['titulo'],

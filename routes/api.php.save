@@ -1,0 +1,345 @@
+<?php
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+
+/*
+|--------------------------------------------------------------------------
+| Controllers – Core / Auth
+|--------------------------------------------------------------------------
+*/
+use App\Http\Controllers\AuthController;
+
+/*
+|--------------------------------------------------------------------------
+| Controllers – Config
+|--------------------------------------------------------------------------
+*/
+use App\Http\Controllers\Config\MaintenanceController;
+
+/*
+|--------------------------------------------------------------------------
+| Controllers – Backup
+|--------------------------------------------------------------------------
+*/
+use App\Http\Controllers\BackupController;
+
+/*
+|--------------------------------------------------------------------------
+| Controllers – Funcionalidades
+|--------------------------------------------------------------------------
+*/
+use App\Http\Controllers\Funcionalidades\{
+    UsersController,
+    ConsultasController,
+    ManifestoController,
+    AcompanhamentoController,
+    LembreteController,
+    MotoristasController,
+    CargasController,
+    MensagensController,
+    RastreioController,
+    NotificationController
+};
+
+/*
+|--------------------------------------------------------------------------
+| Controllers – Referências
+|--------------------------------------------------------------------------
+*/
+use App\Http\Controllers\Referencias\{
+    EstadosController,
+    RequisitosController,
+    CarroceriaController,
+    VeiculosController,
+    ClientesController,
+    FilialController,
+    CdClientesController
+};
+
+/*
+|--------------------------------------------------------------------------
+| Controllers – Utilidades
+|--------------------------------------------------------------------------
+*/
+use App\Http\Controllers\Utilities\{
+    ContatosController,
+    LinksController
+};
+
+/*
+|--------------------------------------------------------------------------
+| HEALTH / DEBUG
+|--------------------------------------------------------------------------
+*/
+Route::get('/', fn () => response()->json(['status' => 'OK'], 200));
+
+Route::get('/user', fn (Request $request) => $request->user());
+
+Route::get('/debug-base-model', fn () =>
+    class_exists(\App\Models\BaseModel::class)
+        ? 'BaseModel OK'
+        : 'BaseModel NOT FOUND'
+);
+
+
+
+/*
+|--------------------------------------------------------------------------
+| CONFIGURAÇÕES GLOBAIS (PUBLIC)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('config')->group(function () {
+    // Status público de manutenção (Flutter consome aqui)
+    Route::get('/maintenance', [MaintenanceController::class, 'status']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| CONFIGURAÇÕES GLOBAIS (PROTECTED – ADM)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum'])->prefix('config')->group(function () {
+    Route::post('/maintenance', [MaintenanceController::class, 'update']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| AUTENTICAÇÃO (PUBLIC)
+|--------------------------------------------------------------------------
+*/
+Route::post('/log', [UsersController::class, 'login']);
+Route::match(['get', 'post'], '/login', [AuthController::class, 'login'])->name('login');
+Route::put('/users/{id}/rec', [UsersController::class, 'resetPasswordByEmail']);
+
+/*
+|--------------------------------------------------------------------------
+| AUTENTICAÇÃO (PROTECTED)
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->group(function () {
+    Route::get('/validate', [AuthController::class, 'validateToken']);
+    Route::post('/logout', [AuthController::class, 'logout']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| BACKUP (PROTECTED)
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')
+    ->prefix('backup')
+    ->group(function () {
+        Route::post('/enviar', [BackupController::class, 'enviarBackup']);
+    });
+
+/*
+|--------------------------------------------------------------------------
+| API PROTECTED — CONFIRM / INDEX
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->group(function () {
+
+    // Users
+    Route::get('/users', [UsersController::class, 'index']);
+    Route::post('/user/{email}', [UsersController::class, 'listEmail']);
+
+    // Funcionalidades
+    Route::get('/consultas', [ConsultasController::class, 'index']);
+    Route::get('/manifesto', [ManifestoController::class, 'index']);
+    Route::get('/acompanhamento', [AcompanhamentoController::class, 'index']);
+    Route::get('/lembrete', [LembreteController::class, 'index']);
+    Route::get('/motoristas', [MotoristasController::class, 'index']);
+    Route::get('/cargas', [CargasController::class, 'index']);
+    Route::get('/mensagens', [MensagensController::class, 'index']);
+    Route::get('/rastreio', [RastreioController::class, 'index']);
+
+    // Notificações
+    Route::get('/notificacoes', [NotificationController::class, 'index']);
+
+    // Referências
+    Route::get('/estados', [EstadosController::class, 'index']);
+    Route::get('/req', [RequisitosController::class, 'index']);
+    Route::get('/car', [CarroceriaController::class, 'index']);
+    Route::get('/vei', [VeiculosController::class, 'index']);
+    Route::get('/clis', [ClientesController::class, 'index']);
+    Route::get('/fli', [FilialController::class, 'index']);
+    Route::get('/cds', [CdClientesController::class, 'index']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| API PROTECTED — FUNCIONALIDADES
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->group(function () {
+
+    Route::prefix('users')->group(function () {
+        Route::get('/s', [UsersController::class, 'search']);
+        Route::get('/{id}', [UsersController::class, 'filter']);
+        Route::post('/', [UsersController::class, 'cad']);
+        Route::put('/{id}', [UsersController::class, 'edit']);
+        Route::put('/{id}/change', [UsersController::class, 'changePassword']);
+        Route::delete('/{id}', [UsersController::class, 'delete']);
+    });
+
+    Route::prefix('consultas')->group(function () {
+        Route::get('/s', [ConsultasController::class, 'search']);
+        Route::get('/{id}', [ConsultasController::class, 'filter']);
+        Route::post('/', [ConsultasController::class, 'cad']);
+        Route::put('/{id}', [ConsultasController::class, 'edit']);
+        Route::delete('/{id}', [ConsultasController::class, 'delete']);
+        Route::delete('/del', [ConsultasController::class, 'deleteEnviados']);
+        Route::delete('/clear', [ConsultasController::class, 'destroy']);
+    });
+
+    Route::prefix('manifesto')->group(function () {
+        Route::get('/s', [ManifestoController::class, 'search']);
+        Route::get('/{id}', [ManifestoController::class, 'filter']);
+        Route::post('/', [ManifestoController::class, 'cad']);
+        Route::put('/{id}', [ManifestoController::class, 'edit']);
+        Route::delete('/{id}', [ManifestoController::class, 'delete']);
+    });
+
+    Route::prefix('acompanhamento')->group(function () {
+        Route::get('/s', [AcompanhamentoController::class, 'search']);
+        Route::get('/{id}', [AcompanhamentoController::class, 'filter']);
+        Route::post('/', [AcompanhamentoController::class, 'cad']);
+        Route::put('/{id}', [AcompanhamentoController::class, 'edit']);
+        Route::delete('/{id}', [AcompanhamentoController::class, 'delete']);
+    });
+
+    Route::prefix('lembrete')->group(function () {
+        Route::post('/s', [LembreteController::class, 'search']);
+        Route::get('/{id}', [LembreteController::class, 'filter']);
+        Route::post('/', [LembreteController::class, 'cad']);
+        Route::put('/{id}', [LembreteController::class, 'edit']);
+        Route::patch('/{id}/done', [LembreteController::class, 'done']);
+        Route::delete('/{id}', [LembreteController::class, 'delete']);
+    });
+
+    Route::prefix('motoristas')->group(function () {
+        Route::get('/s', [MotoristasController::class, 'search']);
+        Route::get('/{id}', [MotoristasController::class, 'filter']);
+        Route::post('/', [MotoristasController::class, 'cad']);
+        Route::put('/{id}', [MotoristasController::class, 'edit']);
+        Route::delete('/{id}', [MotoristasController::class, 'delete']);
+    });
+
+    Route::prefix('cargas')->group(function () {
+        Route::get('/s', [CargasController::class, 'search']);
+        Route::get('/{id}', [CargasController::class, 'filter']);
+        Route::post('/', [CargasController::class, 'cad']);
+        Route::put('/{id}', [CargasController::class, 'edit']);
+        Route::delete('/{id}', [CargasController::class, 'delete']);
+    });
+
+    Route::prefix('mensagens')->group(function () {
+        Route::get('/s', [MensagensController::class, 'search']);
+        Route::post('/', [MensagensController::class, 'cad']);
+        Route::delete('/{id}', [MensagensController::class, 'delete']);
+    });
+
+    Route::prefix('rastreio')->group(function () {
+        Route::get('/s', [RastreioController::class, 'search']);
+        Route::get('/{id}', [RastreioController::class, 'filter']);
+        Route::post('/', [RastreioController::class, 'cad']);
+        Route::put('/{id}', [RastreioController::class, 'edit']);
+        Route::delete('/{id}', [RastreioController::class, 'delete']);
+    });
+
+    Route::prefix('notificacoes')->group(function () {
+        Route::post('/search', [NotificationController::class, 'search']);
+        Route::post('/', [NotificationController::class, 'store']);
+        Route::post('/lidas', [NotificationController::class, 'markAllRead']);
+    });
+});
+
+/*
+|--------------------------------------------------------------------------
+| API PROTECTED — REFERÊNCIAS & UTILIDADES
+|--------------------------------------------------------------------------
+*/
+Route::middleware('auth:sanctum')->group(function () {
+
+    Route::prefix('estados')->group(function () {
+        Route::get('/s', [EstadosController::class, 'search']);
+        Route::get('/{id}', [EstadosController::class, 'filter']);
+        Route::post('/filter', [EstadosController::class, 'filterEstados']);
+        Route::post('/', [EstadosController::class, 'cad']);
+        Route::put('/{id}', [EstadosController::class, 'edit']);
+        Route::delete('/{id}', [EstadosController::class, 'delete']);
+    });
+
+    Route::prefix('req')->group(function () {
+        Route::get('/s', [RequisitosController::class, 'search']);
+        Route::get('/{id}', [RequisitosController::class, 'filter']);
+        Route::post('/filter', [RequisitosController::class, 'filterRequisitos']);
+        Route::post('/', [RequisitosController::class, 'cad']);
+        Route::put('/{id}', [RequisitosController::class, 'edit']);
+        Route::delete('/{id}', [RequisitosController::class, 'delete']);
+    });
+
+    Route::prefix('car')->group(function () {
+        Route::get('/s', [CarroceriaController::class, 'search']);
+        Route::get('/{id}', [CarroceriaController::class, 'filter']);
+        Route::post('/filter', [CarroceriaController::class, 'filterCarrocerias']);
+        Route::post('/', [CarroceriaController::class, 'cad']);
+        Route::put('/{id}', [CarroceriaController::class, 'edit']);
+        Route::delete('/{id}', [CarroceriaController::class, 'delete']);
+    });
+
+    Route::prefix('vei')->group(function () {
+        Route::get('/s', [VeiculosController::class, 'search']);
+        Route::get('/{id}', [VeiculosController::class, 'filter']);
+        Route::post('/filter', [VeiculosController::class, 'filterVeiculos']);
+        Route::post('/', [VeiculosController::class, 'cad']);
+        Route::put('/{id}', [VeiculosController::class, 'edit']);
+        Route::delete('/{id}', [VeiculosController::class, 'delete']);
+    });
+
+    Route::prefix('clis')->group(function () {
+        Route::get('/s', [ClientesController::class, 'search']);
+        Route::get('/{id}', [ClientesController::class, 'filter']);
+        Route::post('/filter', [ClientesController::class, 'filterClientes']);
+        Route::post('/', [ClientesController::class, 'cad']);
+        Route::put('/{id}', [ClientesController::class, 'edit']);
+        Route::delete('/{id}', [ClientesController::class, 'delete']);
+    });
+
+    Route::prefix('fli')->group(function () {
+        Route::get('/s', [FilialController::class, 'search']);
+        Route::get('/{id}', [FilialController::class, 'filter']);
+        Route::post('/filter', [FilialController::class, 'filterFilial']);
+        Route::post('/', [FilialController::class, 'cad']);
+        Route::put('/{id}', [FilialController::class, 'edit']);
+        Route::delete('/{id}', [FilialController::class, 'delete']);
+    });
+
+    Route::prefix('cds')->group(function () {
+        Route::get('/s', [CdClientesController::class, 'search']);
+        Route::get('/{id}', [CdClientesController::class, 'filter']);
+        Route::post('/filter', [CdClientesController::class, 'filterCds']);
+        Route::post('/', [CdClientesController::class, 'cad']);
+        Route::put('/{id}', [CdClientesController::class, 'edit']);
+        Route::delete('/{id}', [CdClientesController::class, 'delete']);
+    });
+
+    Route::prefix('contatos')->group(function () {
+        Route::get('/s', [ContatosController::class, 'search']);
+        Route::get('/{id}', [ContatosController::class, 'filter']);
+        Route::post('/', [ContatosController::class, 'cad']);
+        Route::put('/{id}', [ContatosController::class, 'edit']);
+        Route::delete('/{id}', [ContatosController::class, 'delete']);
+        Route::delete('/clear', [ContatosController::class, 'destroy']);
+    });
+
+    Route::prefix('links')->group(function () {
+        Route::get('/s', [LinksController::class, 'search']);
+        Route::get('/{id}', [LinksController::class, 'filter']);
+        Route::post('/', [LinksController::class, 'cad']);
+        Route::put('/{id}', [LinksController::class, 'edit']);
+        Route::delete('/{id}', [LinksController::class, 'delete']);
+        Route::delete('/clear', [LinksController::class, 'destroy']);
+    });
+});
