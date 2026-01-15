@@ -147,6 +147,171 @@ Route::get('/debug-db', function() {
     }
 });
 
+// Teste de rede DO CONTAINER Railway
+Route::get('/container-network-test', function () {
+    $results = [];
+    $host = 'db.fonrobpijqhhodsgxflz.supabase.co';
+    
+    // Função para testar portas
+    function testPort($host, $port, $timeout = 5) {
+        $start = microtime(true);
+        $context = stream_context_create([
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+            ]
+        ]);
+        
+        $fp = @stream_socket_client(
+            "tcp://{$host}:{$port}",
+            $errno,
+            $errstr,
+            $timeout,
+            STREAM_CLIENT_CONNECT,
+            $context
+        );
+        
+        $responseTime = microtime(true) - $start;
+        
+        if ($fp) {
+            fclose($fp);
+            return [
+                'success' => true,
+                'error' => null,
+                'response_time' => round($responseTime * 1000, 2) . 'ms'
+            ];
+        }
+        
+        return [
+            'success' => false,
+            'error' => $errstr,
+            'error_no' => $errno,
+            'response_time' => round($responseTime * 1000, 2) . 'ms'
+        ];
+    }
+    
+    // Testar portas
+    $results['port_5432'] = testPort($host, 5432);
+    $results['port_6543'] = testPort($host, 6543);
+    
+    // Testar DNS
+    $dnsStart = microtime(true);
+    $ips = @dns_get_record($host, DNS_A);
+    $dnsTime = microtime(true) - $dnsStart;
+    
+    $results['dns'] = [
+        'host' => $host,
+        'ips' => $ips ?: [],
+        'success' => !empty($ips),
+        'response_time' => round($dnsTime * 1000, 2) . 'ms',
+        'gethostbyname' => @gethostbyname($host),
+    ];
+    
+    // Informações do container
+    $results['container_info'] = [
+        'php_uname' => php_uname(),
+        'php_sapi' => php_sapi_name(),
+        'server_ip' => $_SERVER['SERVER_ADDR'] ?? 'unknown',
+        'remote_ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+        'server_name' => $_SERVER['SERVER_NAME'] ?? 'unknown',
+        'php_version' => PHP_VERSION,
+        'laravel_version' => app()->version(),
+        'current_time' => now()->toISOString(),
+    ];
+    
+    // Testar conexão PDO direta
+    try {
+        $dsn = "pgsql:host={$host};port=6543;dbname=postgres;sslmode=require";
+        $start = microtime(true);
+        $pdo = new PDO(
+            $dsn,
+            'postgres',
+            'Test01001*11112002',
+            [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_TIMEOUT => 5,
+            ]
+        );
+        $pdoTime = microtime(true) - $start;
+        
+        $stmt = $pdo->query('SELECT 1 as test, current_database() as db');
+        $dbResult = $stmt->fetch();
+        
+        $results['pdo_connection'] = [
+            'success' => true,
+            'response_time' => round($pdoTime * 1000, 2) . 'ms',
+            'query_result' => $dbResult,
+            'pdo_drivers' => PDO::getAvailableDrivers(),
+        ];
+    } catch (PDOException $e) {
+        $results['pdo_connection'] = [
+            'success' => false,
+            'error' => $e->getMessage(),
+            'error_code' => $e->getCode(),
+        ];
+    }
+    
+    return response()->json($results);
+});
+
+// Teste de conexão via Laravel DB facade
+Route::get('/test-db-connection', function () {
+    $config = config('database.connections.pgsql');
+    
+    // Remover senha do log por segurança
+    $logConfig = $config;
+    unset($logConfig['password']);
+    
+    try {
+        // Tentar conexão direta
+        DB::connection()->getPdo();
+        
+        // Testar query
+        $result = DB::select('SELECT version() as version, current_database() as db, current_user as user');
+        
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Conexão com banco de dados estabelecida',
+            'config' => $logConfig,
+            'database_info' => $result[0] ?? null,
+            'timestamp' => now()->toISOString(),
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Falha na conexão com o banco de dados',
+            'error' => $e->getMessage(),
+            'error_class' => get_class($e),
+            'config' => $logConfig,
+            'php_pdo_drivers' => PDO::getAvailableDrivers(),
+            'laravel_env' => app()->environment(),
+            'timestamp' => now()->toISOString(),
+        ], 500);
+    }
+});
+
+// Teste de configuração atual
+Route::get('/current-config', function () {
+    $config = config('database.connections.pgsql');
+    unset($config['password']); // Segurança
+    
+    return response()->json([
+        'database_config' => $config,
+        'env_variables' => [
+            'DB_HOST' => env('DB_HOST'),
+            'DB_PORT' => env('DB_PORT'),
+            'DB_DATABASE' => env('DB_DATABASE'),
+            'DB_USERNAME' => env('DB_USERNAME'),
+            'DB_SSLMODE' => env('DB_SSLMODE'),
+            'APP_ENV' => env('APP_ENV'),
+        ],
+        'railway_vars' => [
+            'RAILWAY_ENVIRONMENT' => env('RAILWAY_ENVIRONMENT'),
+            'RAILWAY_SERVICE_NAME' => env('RAILWAY_SERVICE_NAME'),
+        ],
+    ]);
+});
+
 Route::get('/test-connection', function() {
     $host = env('DB_HOST');
     $port = env('DB_PORT');
