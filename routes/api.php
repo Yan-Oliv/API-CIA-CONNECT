@@ -123,6 +123,56 @@ Route::get('/test-db', function() {
     }
 });
 
+Route::get('/debug-db', function() {
+    try {
+        // Teste conexão básica
+        $host = env('DB_HOST');
+        $port = env('DB_PORT');
+        $database = env('DB_DATABASE');
+        $username = env('DB_USERNAME');
+        
+        return response()->json([
+            'config' => [
+                'host' => $host,
+                'port' => $port,
+                'database' => $database,
+                'username' => $username,
+                'connection' => env('DB_CONNECTION'),
+                'sslmode' => env('DB_SSLMODE'),
+            ],
+            'env_loaded' => app()->environment(),
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
+
+Route::get('/test-connection', function() {
+    $host = env('DB_HOST');
+    $port = env('DB_PORT');
+    
+    $timeout = 5;
+    $connected = false;
+    
+    try {
+        $socket = @fsockopen($host, $port, $errno, $errstr, $timeout);
+        if ($socket) {
+            fclose($socket);
+            $connected = true;
+        }
+    } catch (\Exception $e) {
+        $connected = false;
+    }
+    
+    return response()->json([
+        'host' => $host,
+        'port' => $port,
+        'connection_test' => $connected ? 'SUCCESS' : 'FAILED',
+        'error' => $errstr ?? null,
+        'error_no' => $errno ?? null,
+    ]);
+});
+
 Route::get('/user', fn (Request $request) => $request->user());
 
 Route::get('/debug-base-model', fn () =>
