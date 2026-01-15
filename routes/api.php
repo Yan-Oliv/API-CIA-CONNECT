@@ -74,6 +74,33 @@ use App\Http\Controllers\Utilities\{
 */
 Route::get('/', fn () => response()->json(['status' => 'OK'], 200));
 
+// Rota de teste SIMPLES - sem middleware
+Route::get('/test', function() {
+    return response()->json([
+        'status' => 'ok',
+        'message' => 'API está funcionando',
+        'timestamp' => now(),
+        'php_version' => phpversion(),
+        'laravel_version' => app()->version(),
+    ]);
+});
+
+// Rota de teste de DB - sem autenticação
+Route::get('/test-db', function() {
+    try {
+        DB::connection()->getPdo();
+        return response()->json([
+            'db_status' => 'connected',
+            'database' => DB::connection()->getDatabaseName(),
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'db_status' => 'error',
+            'error' => $e->getMessage(),
+        ], 500);
+    }
+});
+
 Route::get('/user', fn (Request $request) => $request->user());
 
 Route::get('/debug-base-model', fn () =>
