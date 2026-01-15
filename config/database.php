@@ -95,11 +95,6 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'require'),
-            'options' => [
-                // Adicione estas opções para SSL
-                PDO::PGSQL_ATTR_SSL_CERT_DIR => '/etc/ssl/certs',
-                PDO::PGSQL_ATTR_SSL_MODE => PDO::PGSQL_SSL_MODE_REQUIRE,
-            ],
         ],
 
         'sqlsrv' => [
