@@ -9,6 +9,7 @@ return [
         'https://cia-system.up.railway.app',
         'http://localhost:62188',
         'http://localhost:55933',
+        'https://omnialog.up.railway.app'
     ],
     'allowed_origins_patterns' => [],
     'allowed_headers' => ['*'],
