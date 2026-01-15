@@ -94,7 +94,18 @@ return [
             'prefix' => '',
             'prefix_indexes' => true,
             'search_path' => 'public',
-            'sslmode' => env('DB_SSLMODE', 'require'),
+            'sslmode' => env('DB_SSLMODE', 'prefer'),
+            
+            // Configuração SSL compatível com todos os ambientes
+            'options' => (extension_loaded('pdo_pgsql') && defined('PDO::PGSQL_ATTR_SSL_MODE'))
+                ? [
+                    PDO::PGSQL_ATTR_SSL_MODE => PDO::PGSQL_SSL_MODE_REQUIRE,
+                ]
+                : [],
+            
+            // Timeouts
+            'timeout' => 15,
+            'connect_timeout' => 15,
         ],
 
         'sqlsrv' => [
