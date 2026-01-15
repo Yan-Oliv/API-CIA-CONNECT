@@ -106,10 +106,8 @@ Route::middleware(['auth:sanctum'])->prefix('config')->group(function () {
 | AUTENTICAÇÃO (PUBLIC)
 |--------------------------------------------------------------------------
 */
-Route::post('/log', [UsersController::class, 'login']);
 Route::match(['get', 'post'], '/login', [AuthController::class, 'login'])->name('login');
 Route::put('/users/{id}/rec', [UsersController::class, 'resetPasswordByEmail']);
-Route::post('/logout', [AuthController::class, 'logout']);
 
 /*
 |--------------------------------------------------------------------------
@@ -118,6 +116,7 @@ Route::post('/logout', [AuthController::class, 'logout']);
 */
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/validate', [AuthController::class, 'validateToken']);
+    Route::post('/logout', [AuthController::class, 'logout']);
 });
 
 /*

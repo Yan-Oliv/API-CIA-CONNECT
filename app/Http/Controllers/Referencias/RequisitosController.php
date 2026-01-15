@@ -2,105 +2,133 @@
 
 namespace App\Http\Controllers\Referencias;
 
-use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Referencias\Requisitos;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
-class RequisitosController extends Controller
+class RequisitosController extends BaseApiController
 {
     public function index()
     {
-        return response()->json(['status' => 'OK']);
+        return $this->success(['status' => 'OK']);
     }
 
     public function search()
     {
         try {
-            return response()->json(
-                Requisitos::orderByDesc('last_update')->get(),
-                200
-            );
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            $data = Requisitos::orderByDesc('last_update')->get();
+            return $this->success($data);
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao listar requisitos');
         }
     }
 
-    public function filter($id)
+    public function filter(int $id)
     {
         $requisito = Requisitos::find($id);
 
         if (!$requisito) {
-            return response()->json(['error' => 'Requisito não encontrado'], 404);
+            return $this->error('Requisito não encontrado', 404);
         }
 
-        return response()->json($requisito, 200);
+        return $this->success($requisito);
     }
 
     public function cad(Request $request)
     {
-        $validated = $request->validate([
-            'requisitos' => 'required|string|max:255',
-            'user_id'    => 'required|integer|exists:users,id',
-        ]);
-
         try {
-            return response()->json(
-                Requisitos::create($validated),
-                201
+            $validated = $request->validate([
+                'requisitos' => 'required|string|max:255',
+                'user_id'    => 'required|integer|exists:users,id',
+            ]);
+
+            $requisito = Requisitos::create($validated);
+
+            return $this->success($requisito, 201);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'Dados inválidos',
+                422,
+                ['errors' => $e->errors()]
             );
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erro ao adicionar requisito: ' . $e->getMessage()
-            ], 500);
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao cadastrar requisito', [
+                'payload' => $request->all(),
+            ]);
         }
     }
 
-    public function edit(Request $request, $id)
+    public function edit(Request $request, int $id)
     {
         $requisito = Requisitos::find($id);
 
         if (!$requisito) {
-            return response()->json(['error' => 'Requisito não encontrado'], 404);
+            return $this->error('Requisito não encontrado', 404);
         }
-
-        $validated = $request->validate([
-            'requisitos' => 'required|string|max:255',
-        ]);
 
         try {
+            $validated = $request->validate([
+                'requisitos' => 'required|string|max:255',
+            ]);
+
             $requisito->update($validated);
-            return response()->json($requisito, 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erro ao atualizar requisito: ' . $e->getMessage()
-            ], 500);
+
+            return $this->success($requisito);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'Dados inválidos',
+                422,
+                ['errors' => $e->errors()]
+            );
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao atualizar requisito', [
+                'id' => $id,
+            ]);
         }
     }
 
-    public function delete($id)
+    public function delete(int $id)
     {
         $requisito = Requisitos::find($id);
 
         if (!$requisito) {
-            return response()->json(['error' => 'Requisito não encontrado'], 404);
+            return $this->error('Requisito não encontrado', 404);
         }
 
-        $requisito->delete();
-
-        return response()->json(['message' => 'Requisito excluído com sucesso'], 200);
+        try {
+            $requisito->delete();
+            return $this->success(['message' => 'Excluído com sucesso']);
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao excluir requisito', [
+                'id' => $id,
+            ]);
+        }
     }
 
     public function filterRequisitos(Request $request)
     {
-        $ids = $request->input('ids');
+        try {
+            $ids = $request->validate([
+                'ids' => 'required|array|min:1',
+                'ids.*' => 'integer',
+            ])['ids'];
 
-        if (!is_array($ids) || empty($ids)) {
-            return response()->json(['error' => 'IDs inválidos'], 400);
+            $data = Requisitos::whereIn('id', $ids)->get();
+
+            return $this->success($data);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'IDs inválidos',
+                422,
+                ['errors' => $e->errors()]
+            );
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao filtrar requisitos');
         }
-
-        return response()->json(
-            Requisitos::whereIn('id', $ids)->get(),
-            200
-        );
     }
 }

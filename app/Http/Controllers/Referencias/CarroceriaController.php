@@ -2,116 +2,157 @@
 
 namespace App\Http\Controllers\Referencias;
 
-use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Referencias\Carroceria;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
-class CarroceriaController extends Controller
+class CarroceriaController extends BaseApiController
 {
     public function index()
     {
-        return response()->json([
-            'status' => 'OK',
-        ]);
+        return $this->success(null);
     }
 
     public function search()
     {
         try {
             $carrocerias = Carroceria::orderBy('id')->get();
-            return response()->json($carrocerias, 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erro ao buscar carrocerias',
-                'detail' => $e->getMessage()
-            ], 500);
+
+            Log::info('[Carroceria] Lista carregada', [
+                'total' => $carrocerias->count(),
+            ]);
+
+            return $this->success($carrocerias);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[Carroceria] Erro ao buscar lista',
+                $this->baseContext()
+            );
         }
     }
 
-    public function filter($id)
+    public function filter(int $id)
     {
-        $carroceria = Carroceria::find($id);
+        try {
+            $carroceria = Carroceria::find($id);
 
-        if (!$carroceria) {
-            return response()->json(['error' => 'Carroceria não encontrada'], 404);
+            if (!$carroceria) {
+                return $this->error('Carroceria não encontrada', 404);
+            }
+
+            return $this->success($carroceria);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[Carroceria] Erro ao filtrar',
+                array_merge($this->baseContext(), ['id' => $id])
+            );
         }
-
-        return response()->json($carroceria, 200);
     }
 
     public function cad(Request $request)
     {
-        $valide = $request->validate([
+        $data = $request->validate([
             'nome'    => 'required|string|max:255',
             'tipo'    => 'required|string|max:255',
             'user_id' => 'required|integer|exists:users,id',
         ]);
 
         try {
-            $carroceria = Carroceria::create($valide);
-            return response()->json($carroceria, 201);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erro ao adicionar carroceria',
-                'detail' => $e->getMessage()
-            ], 500);
+            $carroceria = Carroceria::create($data);
+
+            Log::info('[Carroceria] Criada', [
+                'id' => $carroceria->id,
+                'user_id' => $data['user_id'],
+            ]);
+
+            return $this->success($carroceria, 201);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[Carroceria] Erro ao criar',
+                array_merge($this->baseContext(), $data)
+            );
         }
     }
 
-    public function edit(Request $request, $id)
+    public function edit(Request $request, int $id)
     {
-        $carroceria = Carroceria::find($id);
-
-        if (!$carroceria) {
-            return response()->json(['error' => 'Carroceria não encontrada'], 404);
-        }
-
-        $valide = $request->validate([
+        $data = $request->validate([
             'nome' => 'required|string|max:255',
             'tipo' => 'required|string|max:255',
         ]);
 
         try {
-            $carroceria->update($valide);
-            return response()->json($carroceria, 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erro ao atualizar carroceria',
-                'detail' => $e->getMessage()
-            ], 500);
+            $carroceria = Carroceria::find($id);
+
+            if (!$carroceria) {
+                return $this->error('Carroceria não encontrada', 404);
+            }
+
+            $carroceria->update($data);
+
+            Log::info('[Carroceria] Atualizada', [
+                'id' => $id,
+            ]);
+
+            return $this->success($carroceria);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[Carroceria] Erro ao atualizar',
+                array_merge($this->baseContext(), ['id' => $id])
+            );
         }
     }
 
-    public function delete($id)
+    public function delete(int $id)
     {
-        $carroceria = Carroceria::find($id);
-
-        if (!$carroceria) {
-            return response()->json(['error' => 'Carroceria não encontrada'], 404);
-        }
-
         try {
+            $carroceria = Carroceria::find($id);
+
+            if (!$carroceria) {
+                return $this->error('Carroceria não encontrada', 404);
+            }
+
             $carroceria->delete();
-            return response()->json(['message' => 'Carroceria excluída com sucesso'], 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erro ao excluir carroceria',
-                'detail' => $e->getMessage()
-            ], 500);
+
+            Log::warning('[Carroceria] Excluída', [
+                'id' => $id,
+            ]);
+
+            return $this->success(['message' => 'Excluída com sucesso']);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[Carroceria] Erro ao excluir',
+                array_merge($this->baseContext(), ['id' => $id])
+            );
         }
     }
 
     public function filterCarrocerias(Request $request)
     {
-        $valide = $request->validate([
-            'ids' => 'required|array',
+        $data = $request->validate([
+            'ids'   => 'required|array',
             'ids.*' => 'integer',
         ]);
 
-        $carrocerias = Carroceria::whereIn('id', $valide['ids'])
-            ->orderBy('id')
-            ->get();
+        try {
+            $carrocerias = Carroceria::whereIn('id', $data['ids'])
+                ->orderBy('id')
+                ->get();
 
-        return response()->json($carrocerias, 200);
+            return $this->success($carrocerias);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[Carroceria] Erro ao filtrar múltiplos',
+                array_merge($this->baseContext(), $data)
+            );
+        }
     }
 }

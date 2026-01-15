@@ -2,192 +2,169 @@
 
 namespace App\Http\Controllers\Funcionalidades;
 
-use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Funcionalidades\Notificacoes;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
-class NotificationController extends Controller
+class NotificationController extends BaseApiController
 {
-    /**
-     * Retorna “pong” para health‑check.
-     */
     public function index()
     {
-        return response()->json(['status' => 'OK']);
+        return $this->success(['status' => 'OK']);
     }
 
-    /**
-     * Busca todas as notificações VISÍVEIS ao usuário logado.
-     * Reproduz a regra do Flutter:
-     *  - ADM vê tudo
-     *  - type = logs  → só ADM
-     *  - type = sistema → criador + ADM
-     *  - type = atualizacao → mesmo context E (mesmo role OU mesma filial)
-     *  - type = urgente/importante/atencao → se user_id estiver em visible_to_users
-     */
-     public function search(Request $request)
-  {
-    $userId   = (int) $request->input('user_id');
-    $role     = (string) $request->input('user_role');
-    $context  = (string) $request->input('context');
-    $filialId = (string) $request->input('filial_id');
-    $onlyUnread = $request->boolean('only_unread', true);
+    public function search(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'user_id'     => 'required|integer',
+                'user_role'   => 'required|string',
+                'context'     => 'required|string',
+                'filial_id'   => 'nullable|string',
+                'only_unread' => 'boolean',
+            ]);
 
-    $query = Notificacoes::query();
+            $query = Notificacoes::query();
 
-    if ($onlyUnread) {
-        $query->where('read', false);
-    }
+            if ($validated['only_unread'] ?? true) {
+                $query->where('read', false);
+            }
 
-    // ADM vê tudo
-    if ($role === 'ADM') {
-        if ($context !== 'dashboard') {
-            $query->where(function ($q) use ($context) {
-                $q->where('context', $context)
-                  ->orWhereNull('context');
-            });
+            if ($validated['user_role'] === 'ADM') {
+                if ($validated['context'] !== 'dashboard') {
+                    $query->where(function ($q) use ($validated) {
+                        $q->where('context', $validated['context'])
+                          ->orWhereNull('context');
+                    });
+                }
+
+                return $this->success(
+                    $query->orderByDesc('timestamp')->get()
+                );
+            }
+
+            $query->where('type', '!=', 'logs')
+                ->where(function ($q) use ($validated) {
+
+                    $q->where('created_by', $validated['user_id'])
+
+                      ->orWhere(function ($q2) use ($validated) {
+                          $q2->where('type', 'sistema')
+                             ->where('created_by', $validated['user_id']);
+                      })
+
+                      ->orWhere(function ($q2) use ($validated) {
+                          $q2->where('type', 'atualizacao')
+                             ->when(
+                                 $validated['context'] !== 'dashboard',
+                                 fn ($qq) => $qq->where('context', $validated['context'])
+                             )
+                             ->where(function ($qq) use ($validated) {
+                                 $qq->whereJsonContains('visible_to_roles', $validated['user_role'])
+                                    ->orWhereJsonContains('visible_to_filial', $validated['filial_id'])
+                                    ->orWhere(function ($q3) {
+                                        $q3->whereNull('visible_to_roles')
+                                           ->whereNull('visible_to_filial')
+                                           ->whereNull('visible_to_users');
+                                    });
+                             });
+                      })
+
+                      ->orWhere(function ($q2) use ($validated) {
+                          $q2->whereIn('type', ['urgente', 'importante', 'atencao'])
+                             ->whereJsonContains('visible_to_users', $validated['user_id']);
+                      });
+                });
+
+            return $this->success(
+                $query->orderByDesc('timestamp')->get()
+            );
+
+        } catch (ValidationException $e) {
+            return $this->error('Parâmetros inválidos', 422, [
+                'errors' => $e->errors(),
+            ]);
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao buscar notificações', [
+                'payload' => $request->all(),
+            ]);
         }
-        return response()->json(
-            $query->orderByDesc('timestamp')->get(),
-            200
-        );
     }
 
-    // Usuários comuns
-    $query->where('type', '!=', 'logs')
-        ->where(function ($q) use ($userId, $role, $filialId, $context) {
-
-            // 1) Criadas pelo próprio usuário
-            $q->where('created_by', $userId);
-
-            // 2) SISTEMA → criador
-            $q->orWhere(function ($q2) use ($userId) {
-                $q2->where('type', 'sistema')
-                   ->where('created_by', $userId);
-            });
-
-            // 3) ATUALIZACAO
-            $q->orWhere(function ($q2) use ($role, $filialId, $context) {
-                $q2->where('type', 'atualizacao')
-                   ->when($context !== 'dashboard', fn($q3) => $q3->where('context', $context))
-                   ->where(function ($q3) use ($role, $filialId) {
-                        $q3->whereJsonContains('visible_to_roles', $role)
-                           ->orWhereJsonContains('visible_to_filial', $filialId)
-                           ->orWhere(function($q4){
-                               $q4->whereNull('visible_to_roles')
-                                  ->whereNull('visible_to_filial')
-                                  ->whereNull('visible_to_users');
-                           });
-                   });
-            });
-
-            // 4) URGENTE / IMPORTANTE / ATENCAO → usuários explícitos
-            $q->orWhere(function ($q2) use ($userId) {
-                $q2->whereIn('type', ['urgente','importante','atencao'])
-                   ->whereJsonContains('visible_to_users', $userId);
-            });
-
-        });
-
-       return response()->json(
-          $query->orderByDesc('timestamp')->get(),
-          200
-       );
-    }
-
-
-    /**
-     * Cria nova notificação vinda do seu próprio backend (ex.: jobs, webhooks).
-     * Tipicamente o Flutter cria pelo próprio app; este endpoint é útil para
-     * processos internos do servidor.
-     */
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'message'           => 'required|string',
-            'type'              => 'required|string',
-            'context'           => 'required|string',
-            'created_by'        => 'nullable|integer|exists:users,id',
-            'visible_to_roles'  => 'nullable|array',
-            'visible_to_users'  => 'nullable|array',
-            'visible_to_filial' => 'nullable|array',
-        ]);
+        try {
+            $data = $request->validate([
+                'message'           => 'required|string',
+                'type'              => 'required|string',
+                'context'           => 'required|string',
+                'created_by'        => 'nullable|integer|exists:users,id',
+                'visible_to_roles'  => 'nullable|array',
+                'visible_to_users'  => 'nullable|array',
+                'visible_to_filial' => 'nullable|array',
+            ]);
 
-        $data['read']      = false;
-        $data['timestamp'] = now();
-        $data['visible_to_roles'] = $data['visible_to_roles']
-            ? array_values($data['visible_to_roles'])
-            : null;
+            $data['read']      = false;
+            $data['timestamp'] = now();
 
+            $noty = Notificacoes::create($data);
 
-        $noty = Notificacoes::create($data);
+            Log::info('[NOTIFICATION CREATED]', [
+                'id' => $noty->id,
+                'type' => $noty->type,
+            ]);
 
-        return response()->json([
-            'message' => 'Notificação criada',
-            'data'    => $noty,
-        ], 201);
+            return $this->success($noty, 201);
+
+        } catch (ValidationException $e) {
+            return $this->error('Dados inválidos', 422, [
+                'errors' => $e->errors(),
+            ]);
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao criar notificação', [
+                'payload' => $request->all(),
+            ]);
+        }
     }
 
-    /**
-     * Marca todas as notificações do usuário como lidas.
-     */
     public function markAllRead(Request $request)
     {
-        $userId   = (int) $request->input('user_id');
-        $context  = (string) $request->input('context');
-        $role     = (string) $request->input('user_role');
-        $filialId = (string) $request->input('filial_id');
+        try {
+            $validated = $request->validate([
+                'user_id'   => 'required|integer',
+                'context'   => 'required|string',
+                'user_role' => 'required|string',
+                'filial_id' => 'nullable|string',
+            ]);
 
-        $query = Notificacoes::query();
+            $query = Notificacoes::query()
+                ->where('context', $validated['context']);
 
-        if ($role !== 'ADM') {
-            $query->where('type', '!=', 'logs')
-                ->where(function ($q) use ($userId, $role, $filialId, $context) {
+            if ($validated['user_role'] !== 'ADM') {
+                $query->where('type', '!=', 'logs')
+                      ->where(function ($q) use ($validated) {
+                          $q->where('created_by', $validated['user_id'])
+                            ->orWhereJsonContains('visible_to_users', $validated['user_id'])
+                            ->orWhereJsonContains('visible_to_roles', $validated['user_role'])
+                            ->orWhereJsonContains('visible_to_filial', $validated['filial_id']);
+                      });
+            }
 
-                    // Criadas pelo usuário
-                    $q->where('created_by', $userId);
+            $query->update(['read' => true]);
 
-                    // Sistema
-                    $q->orWhere(function ($q) use ($userId) {
-                        $q->where('type', 'sistema')
-                            ->where('created_by', $userId);
-                    });
+            return $this->success(['message' => 'Notificações marcadas como lidas']);
 
-                    // Atualizações
-                    $q->orWhere(function ($q) use ($role, $filialId, $context) {
-                        $q->where('type', 'atualizacao');
-
-                        if ($context !== 'dashboard') {
-                            $q->where('context', $context);
-                        }
-
-                        $q->where(function ($q) use ($role, $filialId) {
-                            $q->whereJsonContains('visible_to_roles', $role);
-
-                            if (!empty($filialId)) {
-                                $q->orWhereJsonContains(
-                                    'visible_to_filial',
-                                    $filialId
-                                );
-                            }
-                        });
-                    });
-
-                    // Urgente / Importante / Atenção
-                    $q->orWhere(function ($q) use ($userId) {
-                        $q->whereIn('type', ['urgente', 'importante', 'atencao'])
-                            ->whereJsonContains('visible_to_users', $userId);
-                    });
-                });
+        } catch (ValidationException $e) {
+            return $this->error('Parâmetros inválidos', 422, [
+                'errors' => $e->errors(),
+            ]);
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao marcar notificações', [
+                'payload' => $request->all(),
+            ]);
         }
-
-        // Contexto: dashboard NÃO deve limpar tudo
-        $query->where('context', $context);
-
-        $query->update(['read' => true]);
-
-
-        return response()->json(['message' => 'Todas lidas'], 200);
     }
 }

@@ -2,39 +2,47 @@
 
 namespace App\Http\Controllers\Referencias;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Referencias\Cliente;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
-class ClientesController extends Controller
+class ClientesController extends BaseApiController
 {
     public function index()
     {
-        return response()->json(['status' => 'OK']);
+        return $this->success(['status' => 'OK']);
     }
 
     public function search()
     {
         try {
-            return response()->json(
-                Cliente::with('gestores')->orderBy('id')->get(),
-                200
+            $clientes = Cliente::with('gestores')
+                ->orderBy('id')
+                ->get();
+
+            return $this->success($clientes);
+
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                'Erro ao listar clientes',
+                ['rota' => 'clis/s']
             );
-        } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 
-    public function filter($id)
+    public function filter(int $id)
     {
         $cliente = Cliente::with('gestores')->find($id);
 
         if (!$cliente) {
-            return response()->json(['error' => 'Cliente não encontrado'], 404);
+            return $this->error('Cliente não encontrado', 404);
         }
 
-        return response()->json($cliente, 200);
+        return $this->success($cliente);
     }
 
     public function cad(Request $request)
@@ -60,25 +68,28 @@ class ClientesController extends Controller
 
             DB::commit();
 
-            return response()->json(
+            return $this->success(
                 $cliente->load('gestores'),
                 201
             );
 
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             DB::rollBack();
-            return response()->json([
-                'error' => 'Erro ao adicionar cliente: ' . $e->getMessage()
-            ], 500);
+
+            return $this->exception(
+                $e,
+                'Erro ao criar cliente',
+                ['payload' => $data]
+            );
         }
     }
 
-    public function edit(Request $request, $id)
+    public function edit(Request $request, int $id)
     {
         $cliente = Cliente::find($id);
 
         if (!$cliente) {
-            return response()->json(['error' => 'Cliente não encontrado'], 404);
+            return $this->error('Cliente não encontrado', 404);
         }
 
         $data = $request->validate([
@@ -100,43 +111,60 @@ class ClientesController extends Controller
 
             DB::commit();
 
-            return response()->json(
-                $cliente->load('gestores'),
-                200
+            return $this->success(
+                $cliente->load('gestores')
             );
 
-        } catch (\Exception $e) {
+        } catch (Throwable $e) {
             DB::rollBack();
-            return response()->json([
-                'error' => 'Erro ao atualizar cliente: ' . $e->getMessage()
-            ], 500);
+
+            return $this->exception(
+                $e,
+                'Erro ao atualizar cliente',
+                ['cliente_id' => $id]
+            );
         }
     }
 
-    public function delete($id)
+    public function delete(int $id)
     {
         $cliente = Cliente::find($id);
 
         if (!$cliente) {
-            return response()->json(['error' => 'Cliente não encontrado'], 404);
+            return $this->error('Cliente não encontrado', 404);
         }
 
-        $cliente->delete();
+        try {
+            $cliente->delete();
+            return $this->success(['message' => 'Cliente excluído']);
 
-        return response()->json(['message' => 'Cliente excluído com sucesso'], 200);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                'Erro ao excluir cliente',
+                ['cliente_id' => $id]
+            );
+        }
     }
 
     public function filterClientes(Request $request)
     {
-        $ids = $request->input('ids');
+        $data = $request->validate([
+            'ids'   => 'required|array|min:1',
+            'ids.*' => 'integer',
+        ]);
 
-        if (!is_array($ids) || empty($ids)) {
-            return response()->json(['error' => 'IDs inválidos ou ausentes'], 400);
+        try {
+            return $this->success(
+                Cliente::whereIn('id', $data['ids'])->get()
+            );
+
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                'Erro ao filtrar clientes',
+                ['ids' => $data['ids']]
+            );
         }
-
-        return response()->json(
-            Cliente::whereIn('id', $ids)->get(),
-            200
-        );
     }
 }

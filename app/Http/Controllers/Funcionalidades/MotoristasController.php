@@ -2,147 +2,139 @@
 
 namespace App\Http\Controllers\Funcionalidades;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Funcionalidades\Motoristas;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
-class MotoristasController extends Controller
+class MotoristasController extends BaseApiController
 {
     public function index()
     {
-        return response()->json(['status' => 'OK'], 200);
+        return $this->success(['status' => 'OK']);
     }
 
     public function search()
     {
-        $motoristas = Motoristas::orderByDesc('last_update')->get();
-        return response()->json($motoristas, 200);
+        try {
+            $motoristas = Motoristas::orderByDesc('last_update')->get();
+            return $this->success($motoristas);
+        } catch (Throwable $e) {
+            return $this->exception($e, '[MOTORISTAS] Erro ao listar');
+        }
     }
 
     public function filter(int $id)
     {
-        $motorista = Motoristas::find($id);
+        try {
+            $motorista = Motoristas::find($id);
 
-        if (!$motorista) {
-            return response()->json(['error' => 'Motorista não encontrado'], 404);
+            if (!$motorista) {
+                return $this->error('Motorista não encontrado', 404);
+            }
+
+            return $this->success($motorista);
+        } catch (Throwable $e) {
+            return $this->exception($e, '[MOTORISTAS] Erro ao buscar', ['id' => $id]);
         }
-
-        return response()->json($motorista, 200);
     }
 
     public function cad(Request $request)
     {
-        $validated = $request->validate([
-            'nome' => 'required|string|max:255',
-            'telefone' => 'required|string|max:20',
-            'vei_id' => 'required|integer|exists:veiculos,id',
-            'user_id' => 'required|integer|exists:users,id',
-
-            'car_id' => 'nullable|integer|exists:carrocerias,id',
-            'quantidade_paletes' => 'nullable|integer',
-            'peso' => 'nullable|numeric',
-            'metragem_cubica' => 'nullable|numeric',
-            'placa_cavalo' => 'nullable|string|max:20',
-            'placa_reboque' => 'nullable|string|max:20',
-            'placa_segundo' => 'nullable|string|max:20',
-            'placa_terceiro' => 'nullable|string|max:20',
-            'antt' => 'nullable|string|max:50',
-            'doc_cavalo' => 'nullable|string|max:50',
-            'cpf' => 'nullable|string|max:20|unique:motoristas,cpf',
-            'banco' => 'nullable|string|max:100',
-            'agencia' => 'nullable|string|max:20',
-            'conta' => 'nullable|string|max:30',
-            'pix' => 'nullable|string|max:100',
-            'tipo_pix' => 'nullable|string|max:30',
-            'beneficiario' => 'nullable|string|max:100',
-            'telefone_patrao' => 'nullable|string|max:20',
-            'tag' => 'nullable|string|max:50',
-            'eixos' => 'nullable|integer',
-            'mopp' => 'nullable|string|max:255',
-            'rastreador' => 'nullable|string|max:255',
-            'status' => 'nullable|string|max:255',
-            'observacao' => 'nullable|string',
-        ]);
-
         DB::beginTransaction();
-        try {
-            $motorista = Motoristas::create($validated);
-            DB::commit();
 
-            return response()->json($motorista, 201);
-        } catch (\Throwable $e) {
+        try {
+            $data = $request->validate([
+                'nome' => 'required|string|max:255',
+                'telefone' => 'required|string|max:20',
+                'vei_id' => 'required|integer|exists:veiculos,id',
+                'user_id' => 'required|integer|exists:users,id',
+                'car_id' => 'nullable|integer|exists:carrocerias,id',
+                'quantidade_paletes' => 'nullable|integer',
+                'peso' => 'nullable|numeric',
+                'metragem_cubica' => 'nullable|numeric',
+                'cpf' => 'nullable|string|max:20|unique:motoristas,cpf',
+                'observacao' => 'nullable|string',
+            ]);
+
+            $motorista = Motoristas::create($data);
+
+            DB::commit();
+            return $this->success($motorista, 201);
+
+        } catch (ValidationException $e) {
             DB::rollBack();
             return response()->json([
-                'error' => 'Erro ao adicionar motorista',
-                'detail' => $e->getMessage()
-            ], 500);
+                'success' => false,
+                'message' => 'Dados inválidos',
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (Throwable $e) {
+            DB::rollBack();
+            return $this->exception($e, '[MOTORISTAS] Erro ao criar', [
+                'payload' => $request->all(),
+            ]);
         }
     }
 
     public function edit(Request $request, int $id)
     {
-        $motorista = Motoristas::find($id);
-
-        if (!$motorista) {
-            return response()->json(['error' => 'Motorista não encontrado'], 404);
-        }
-
-        $validated = $request->validate([
-            'nome' => 'required|string|max:255',
-            'telefone' => 'required|string|max:20',
-            'vei_id' => 'required|integer|exists:veiculos,id',
-
-            'car_id' => 'nullable|integer|exists:carrocerias,id',
-            'quantidade_paletes' => 'nullable|integer',
-            'peso' => 'nullable|numeric',
-            'metragem_cubica' => 'nullable|numeric',
-            'placa_cavalo' => 'nullable|string|max:20',
-            'placa_reboque' => 'nullable|string|max:20',
-            'placa_segundo' => 'nullable|string|max:20',
-            'placa_terceiro' => 'nullable|string|max:20',
-            'antt' => 'nullable|string|max:50',
-            'doc_cavalo' => 'nullable|string|max:50',
-            'cpf' => 'nullable|string|max:20|unique:motoristas,cpf,' . $id,
-            'banco' => 'nullable|string|max:100',
-            'agencia' => 'nullable|string|max:20',
-            'conta' => 'nullable|string|max:30',
-            'pix' => 'nullable|string|max:100',
-            'tipo_pix' => 'nullable|string|max:30',
-            'beneficiario' => 'nullable|string|max:100',
-            'telefone_patrao' => 'nullable|string|max:20',
-            'tag' => 'nullable|string|max:50',
-            'eixos' => 'nullable|integer',
-            'mopp' => 'nullable|string|max:255',
-            'rastreador' => 'nullable|string|max:255',
-            'status' => 'nullable|string|max:255',
-            'observacao' => 'nullable|string',
-        ]);
-
         DB::beginTransaction();
-        try {
-            $motorista->update($validated);
-            DB::commit();
 
-            return response()->json($motorista, 200);
-        } catch (\Throwable $e) {
+        try {
+            $motorista = Motoristas::find($id);
+
+            if (!$motorista) {
+                return $this->error('Motorista não encontrado', 404);
+            }
+
+            $data = $request->validate([
+                'nome' => 'required|string|max:255',
+                'telefone' => 'required|string|max:20',
+                'vei_id' => 'required|integer|exists:veiculos,id',
+                'cpf' => 'nullable|string|max:20|unique:motoristas,cpf,' . $id,
+                'observacao' => 'nullable|string',
+            ]);
+
+            $motorista->update($data);
+
+            DB::commit();
+            return $this->success($motorista);
+
+        } catch (ValidationException $e) {
             DB::rollBack();
             return response()->json([
-                'error' => 'Erro ao atualizar motorista',
-                'detail' => $e->getMessage()
-            ], 500);
+                'success' => false,
+                'message' => 'Dados inválidos',
+                'errors' => $e->errors(),
+            ], 422);
+
+        } catch (Throwable $e) {
+            DB::rollBack();
+            return $this->exception($e, '[MOTORISTAS] Erro ao atualizar', [
+                'id' => $id,
+                'payload' => $request->all(),
+            ]);
         }
     }
 
     public function delete(int $id)
     {
-        $motorista = Motoristas::find($id);
+        try {
+            $motorista = Motoristas::find($id);
 
-        if (!$motorista) {
-            return response()->json(['error' => 'Motorista não encontrado'], 404);
+            if (!$motorista) {
+                return $this->error('Motorista não encontrado', 404);
+            }
+
+            $motorista->delete();
+            return $this->success(['message' => 'Motorista excluído']);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, '[MOTORISTAS] Erro ao excluir', ['id' => $id]);
         }
-
-        $motorista->delete();
-        return response()->json(['message' => 'Motorista excluído com sucesso'], 200);
     }
 }

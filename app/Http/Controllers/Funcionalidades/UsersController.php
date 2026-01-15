@@ -2,254 +2,189 @@
 
 namespace App\Http\Controllers\Funcionalidades;
 
-
-use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use App\Models\Funcionalidades\Users;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
+use App\Http\Controllers\BaseApiController;
+use App\Models\User;
 use App\Services\SupabaseStorageService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
-
-
-class UsersController extends Controller
+class UsersController extends BaseApiController
 {
     private SupabaseStorageService $storage;
 
     public function __construct(SupabaseStorageService $storage)
     {
-	$this->storage = $storage;
+        $this->storage = $storage;
     }
 
     public function index()
     {
-        return response()->json([
-            'status' => "OK",
-        ]);
+        return $this->success(['status' => 'OK']);
     }
 
     public function search()
     {
-        $users = Users::all();
+        try {
+            $users = User::all();
 
-        foreach ($users as $user) {
-            if ($user->perfil) {
-                $user->perfil = $user->perfil
-                    ? $this->storage->getPublicUrl($user->perfil)
-                    : null;
+            foreach ($users as $user) {
+                if ($user->perfil) {
+                    $user->perfil = $this->storage->getPublicUrl($user->perfil);
+                }
             }
+
+            return $this->success($users);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao listar usuários');
         }
-        
-        return response()->json($users, 200);
     }
 
-    public function listEmail(Request $request)
+    public function filter(int $id)
     {
-        // Valida se o e-mail foi enviado
-        $validated = $request->validate([
-            'email' => 'required|string|email'
-        ]);
-    
-        // Busca o usuário pelo e-mail
-        $user = Users::where('email', $validated['email'])->first();
-    
+        $user = User::find($id);
+
         if (!$user) {
-            return response()->json(['error' => 'Usuário não encontrado'], 404);
+            return $this->error('Usuário não encontrado', 404, ['id' => $id]);
         }
-    
-        return response()->json([
-            'id' => (int) $user->id,
-            'email' => $user->email,
-        ], 200);
-    }
-
-    public function login(Request $requisitar)
-    {
-        $valide = $requisitar->validate([
-            'email' => 'required|string|email',
-            'password' => 'required|string',
-        ]);
-
-        $user = Users::where('email', $valide['email'])->first();
-
-        if (!$user || !Hash::check($valide['password'], $user->password)) {
-            return response()->json(['error' => 'Credenciais inválidas'], 401);
-        }
-
-        // Evita retornar informações sensíveis, como a senha
-        $userData = $user->only(['id', 'name', 'email', 'telefone', 'role', 'filial_id', 'first_login']);
 
         if ($user->perfil) {
             $user->perfil = $this->storage->getPublicUrl($user->perfil);
         }
 
-
-        return response()->json([
-            'status' => 'OK',
-            'user' => $userData,
-        ], 200);
+        return $this->success($user);
     }
 
-    public function filter($id)
+    public function cad(Request $request)
     {
-        $user = Users::find($id);
+        try {
+            $data = $request->validate([
+                'name'        => 'required|string|max:255',
+                'email'       => 'required|string|email|unique:users,email',
+                'telefone'    => 'nullable|string|max:20',
+                'password'    => 'required|string|min:8',
+                'role'        => 'required|string',
+                'filial_id'   => 'nullable|integer',
+                'first_login' => 'boolean',
+                'perfil'      => 'nullable|string', // Adicionar perfil como opcional
+            ]);
 
-        if (!$user) {
-            return response()->json(['error' => 'Usuário não encontrado'], 404);
-        }
+            $data['password'] = Hash::make($data['password']);
+            $data['perfil']   = $data['perfil'] ?? 'avatars/default_profile.png';
+            
+            // Converte first_login para booleano se necessário
+            if (isset($data['first_login'])) {
+                $data['first_login'] = filter_var($data['first_login'], FILTER_VALIDATE_BOOLEAN);
+            } else {
+                $data['first_login'] = true; // Valor padrão
+            }
 
-        // Se houver imagem, converte para base64 com prefixo do tipo
-        if ($user->perfil) {
-            $user->perfil = $this->storage->getPublicUrl($user->perfil);
-        }
+            $user = User::create($data);
 
-        return response()->json($user, 200);
-    }
+            Log::info('[USER CREATED]', [
+                'id' => $user->id,
+                'email' => $user->email,
+                'filial_id' => $user->filial_id,
+            ]);
 
-    public function cad(Request $requisitar)
-    {
-        $valide = $requisitar->validate([
-            'name'        => 'required|string|max:255',
-            'email'       => 'required|string|max:255|unique:users,email',
-            'telefone'    => 'nullable|string|max:20',
-            'password'    => 'required|string|max:255',
-            'role'        => 'required|string|max:255',
-            'filial_id'   => 'nullable|integer',
-            'first_login' => 'boolean',
-        ]);
+            return $this->success($user, 201);
 
-        $valide['perfil'] = 'avatars/default_profile.png';
-        $valide['password'] = Hash::make($valide['password']);
-
-        $user = Users::create($valide);
-
-        return response()->json([
-            'message' => 'Usuário criado com sucesso',
-            'user' => $user->only(['id', 'name', 'email', 'role', 'filial_id']),
-        ], 201);
-    }
-
-    public function edit(Request $requisitar, $id)
-    {
-        $user = Users::find($id);
-        if (!$user) {
-            return response()->json(['error' => 'Usuário não encontrado'], 404);
-        }
-
-        $valide = $requisitar->validate([
-            'perfil'    => 'nullable|string',
-            'name'      => 'required|string|max:255',
-            'email'     => 'required|string|max:255|unique:users,email,' . $id,
-            'telefone'  => 'nullable|string|max:20',
-            'password'  => 'nullable|string|max:255',
-            'role'      => 'required|string|max:255',
-            'filial_id' => 'nullable|integer',
-        ]);
-
-        if (!empty($valide['password'])) {
-            $valide['password'] = Hash::make($valide['password']);
-        } else {
-            unset($valide['password']);
-        }
-
-        if ($requisitar->filled('perfil')) {
-            preg_match('/data:image\/(\w+);base64,/', $requisitar->perfil, $matches);
-            $extension = $matches[1] ?? 'jpg';
-
-            $base64 = preg_replace('/^data:image\/\w+;base64,/', '', $requisitar->perfil);
-
-
-            $path = $this->storage->uploadAvatar(
-                $user->id,
-                $base64,
-                $extension
+        } catch (ValidationException $e) {
+            Log::error('Validation error in cad:', ['errors' => $e->errors()]);
+            return $this->error(
+                'Dados inválidos',
+                422,
+                ['errors' => $e->errors()]
             );
-
-            $valide['perfil'] = $path;
+        } catch (Throwable $e) {
+            Log::error('Error creating user:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'payload' => $request->all(),
+            ]);
+            
+            return $this->exception($e, 'Erro ao criar usuário', [
+                'payload' => $request->all(),
+            ]);
         }
-
-        $user->update($valide);
-
-        return response()->json([
-            'message' => 'Usuário atualizado com sucesso',
-            'user' => $user->only(['id', 'name', 'email', 'role', 'filial_id']),
-        ], 200);
     }
 
-
-    public function changePassword(Request $requisitar, $id)
+    public function edit(Request $request, int $id)
     {
-        // Buscar o usuário
-        $user = Users::find($id);
-    
+        $user = User::find($id);
+
         if (!$user) {
-            return response()->json(['error' => 'Usuário não encontrado'], 404);
+            return $this->error('Usuário não encontrado', 404, ['id' => $id]);
         }
-    
-        // Validar os campos
-        $valide = $requisitar->validate([
-            'current_password' => 'required|string', // Senha atual (se necessário validar)
-            'new_password' => 'required|string|min:8|max:255|different:current_password', // Nova senha
-            'confirm_password' => 'required|string|same:new_password', // Confirmar nova senha
-        ]);
-    
-        // Verificar a senha atual
-        if (!Hash::check($valide['current_password'], $user->password)) {
-            return response()->json(['error' => 'Senha atual está incorreta'], 403);
-        }
-    
+
         try {
-            // Atualizar a senha
-            $user->password = Hash::make($valide['new_password']);
-            $user->save();
-    
-            return response()->json(['message' => 'Senha alterada com sucesso'], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao alterar senha: ' . $e->getMessage()], 500);
+            $data = $request->validate([
+                'name'      => 'required|string|max:255',
+                'email'     => 'required|string|email|unique:users,email,' . $id,
+                'telefone'  => 'nullable|string|max:20',
+                'password'  => 'nullable|string|min:8',
+                'role'      => 'required|string',
+                'filial_id' => 'nullable|integer',
+                'perfil'    => 'nullable|string',
+            ]);
+
+            if (!empty($data['password'])) {
+                $data['password'] = Hash::make($data['password']);
+            } else {
+                unset($data['password']);
+            }
+
+            if ($request->filled('perfil')) {
+                preg_match('/data:image\/(\w+);base64,/', $request->perfil, $matches);
+                $ext = $matches[1] ?? 'jpg';
+
+                $base64 = preg_replace('/^data:image\/\w+;base64,/', '', $request->perfil);
+                $data['perfil'] = $this->storage->uploadAvatar(
+                    $user->id,
+                    $base64,
+                    $ext
+                );
+            }
+
+            $user->update($data);
+
+            Log::info('[USER UPDATED]', ['id' => $id]);
+
+            return $this->success($user);
+
+        } catch (ValidationException $e) {
+            return $this->error('Dados inválidos', 422, [
+                'errors' => $e->errors(),
+                'id' => $id,
+            ]);
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao atualizar usuário', [
+                'id' => $id,
+                'payload' => $request->all(),
+            ]);
         }
     }
 
-    public function resetPasswordByEmail(Request $request)
+    public function delete(int $id)
     {
-        // Validação dos dados
-        $validated = $request->validate([
-            'email' => 'required|string|email',
-            'new_password' => 'required|string|min:8|max:255',
-            'confirm_password' => 'required|string|same:new_password',
-        ]);
-    
-        // Buscar o usuário pelo e-mail
-        $user = Users::where('email', $validated['email'])->first();
-    
+        $user = User::find($id);
+
         if (!$user) {
-            return response()->json(['error' => 'Usuário com este e-mail não foi encontrado'], 404);
+            return $this->error('Usuário não encontrado', 404, ['id' => $id]);
         }
-    
-        // Verifica se a nova senha é igual à atual
-        if (Hash::check($validated['new_password'], $user->password)) {
-            return response()->json(['error' => 'A nova senha não pode ser igual à atual.'], 400);
-        }
-    
+
         try {
-            // Atualizar a senha
-            $user->password = Hash::make($validated['new_password']);
-            $user->save();
-    
-            return response()->json(['message' => 'Senha redefinida com sucesso'], 200);
-        } catch (\Exception $e) {
-            return response()->json(['error' => 'Erro ao redefinir senha: ' . $e->getMessage()], 500);
+            $user->delete();
+
+            Log::warning('[USER DELETED]', ['id' => $id]);
+
+            return $this->success(['message' => 'Usuário excluído com sucesso']);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao excluir usuário', ['id' => $id]);
         }
-    }
-
-    public function delete($id)
-    {
-        $user = Users::find($id);
-
-        if (!$user) {
-            return response()->json(['error' => 'Usuário não encontrado'], 404);
-        }
-
-        $user->delete();
-        return response()->json(['message' => 'Usuário excluído com sucesso'], 200);
     }
 }

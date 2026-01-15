@@ -2,21 +2,28 @@
 
 namespace App\Http\Controllers\Utilities;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Utilities\Contatos;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
-class ContatosController extends Controller
+class ContatosController extends BaseApiController
 {
     public function index()
     {
-        return response()->json(['status' => 'OK'], 200);
+        return $this->success(['status' => 'OK']);
     }
 
     public function search()
     {
-        $contatos = Contatos::orderByDesc('last_update')->get();
-        return response()->json($contatos, 200);
+        try {
+            $contatos = Contatos::orderByDesc('last_update')->get();
+            return $this->success($contatos);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao listar contatos');
+        }
     }
 
     public function filter(int $id)
@@ -24,30 +31,36 @@ class ContatosController extends Controller
         $contato = Contatos::find($id);
 
         if (!$contato) {
-            return response()->json(['error' => 'Contato não encontrado'], 404);
+            return $this->error('Contato não encontrado', 404);
         }
 
-        return response()->json($contato, 200);
+        return $this->success($contato);
     }
 
     public function cad(Request $request)
     {
-        $validated = $request->validate([
-            'title'   => 'required|string|max:255',
-            'desc'    => 'nullable|string|max:255',
-            'numero'  => 'nullable|string|max:50',
-            'user_id' => 'required|integer|exists:users,id',
-        ]);
-
         try {
-            $contato = Contatos::create($validated);
-            return response()->json($contato, 201);
+            $validated = $request->validate([
+                'title'   => 'required|string|max:255',
+                'desc'    => 'nullable|string|max:255',
+                'numero'  => 'nullable|string|max:50',
+                'user_id' => 'required|integer|exists:users,id',
+            ]);
 
-        } catch (\Throwable $e) {
-            return response()->json([
-                'error' => 'Erro ao adicionar contato',
-                'detail' => $e->getMessage(),
-            ], 500);
+            $contato = Contatos::create($validated);
+
+            return $this->success($contato, 201);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'Dados inválidos',
+                422,
+                ['errors' => $e->errors()]
+            );
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao cadastrar contato', [
+                'payload' => $request->all(),
+            ]);
         }
     }
 
@@ -56,38 +69,32 @@ class ContatosController extends Controller
         $contato = Contatos::find($id);
 
         if (!$contato) {
-            return response()->json(['error' => 'Contato não encontrado'], 404);
+            return $this->error('Contato não encontrado', 404);
         }
-
-        $validated = $request->validate([
-            'title'   => 'required|string|max:255',
-            'desc'    => 'nullable|string|max:255',
-            'numero'  => 'nullable|string|max:50',
-            'user_id' => 'required|integer|exists:users,id',
-        ]);
 
         try {
+            $validated = $request->validate([
+                'title'   => 'required|string|max:255',
+                'desc'    => 'nullable|string|max:255',
+                'numero'  => 'nullable|string|max:50',
+                'user_id' => 'required|integer|exists:users,id',
+            ]);
+
             $contato->update($validated);
-            return response()->json($contato, 200);
 
-        } catch (\Throwable $e) {
-            return response()->json([
-                'error' => 'Erro ao atualizar contato',
-                'detail' => $e->getMessage(),
-            ], 500);
+            return $this->success($contato);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'Dados inválidos',
+                422,
+                ['errors' => $e->errors()]
+            );
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao atualizar contato', [
+                'id' => $id,
+            ]);
         }
-    }
-
-    /**
-     * ⚠️ Use com EXTREMO cuidado
-     * Idealmente remova em produção
-     */
-    public function destroy()
-    {
-        Contatos::truncate();
-        return response()->json([
-            'message' => 'Todos os contatos foram excluídos com sucesso'
-        ], 200);
     }
 
     public function delete(int $id)
@@ -95,10 +102,38 @@ class ContatosController extends Controller
         $contato = Contatos::find($id);
 
         if (!$contato) {
-            return response()->json(['error' => 'Contato não encontrado'], 404);
+            return $this->error('Contato não encontrado', 404);
         }
 
-        $contato->delete();
-        return response()->json(['message' => 'Contato excluído com sucesso'], 200);
+        try {
+            $contato->delete();
+
+            return $this->success([
+                'message' => 'Contato excluído com sucesso'
+            ]);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao excluir contato', [
+                'id' => $id,
+            ]);
+        }
+    }
+
+    /**
+     * ⚠️ EXTREMO CUIDADO
+     * Ideal bloquear por ambiente ou role
+     */
+    public function destroy()
+    {
+        try {
+            Contatos::truncate();
+
+            return $this->success([
+                'message' => 'Todos os contatos foram excluídos'
+            ]);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao limpar contatos');
+        }
     }
 }

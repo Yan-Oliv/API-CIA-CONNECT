@@ -2,98 +2,137 @@
 
 namespace App\Http\Controllers\Referencias;
 
-use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Referencias\Veiculo;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
-class VeiculosController extends Controller
+class VeiculosController extends BaseApiController
 {
     public function index()
     {
-        return response()->json(['status' => 'OK'], 200);
+        return $this->success(['status' => 'OK']);
     }
 
     public function search()
     {
-        $veiculos = Veiculo::orderBy('nome')->get();
-        return response()->json($veiculos, 200);
+        try {
+            $data = Veiculo::orderBy('nome')->get();
+            return $this->success($data);
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao listar veículos');
+        }
     }
 
-    public function filter($id)
+    public function filter(int $id)
     {
         $veiculo = Veiculo::find($id);
 
         if (!$veiculo) {
-            return response()->json(['error' => 'Veículo não encontrado'], 404);
+            return $this->error('Veículo não encontrado', 404);
         }
 
-        return response()->json($veiculo, 200);
+        return $this->success($veiculo);
     }
 
     public function cad(Request $request)
     {
-        $validated = $request->validate([
-            'nome'    => 'required|string|max:255',
-            'tipo'    => 'required|string|max:255',
-            'user_id' => 'required|integer|exists:users,id',
-        ]);
-
         try {
+            $validated = $request->validate([
+                'nome'    => 'required|string|max:255',
+                'tipo'    => 'required|string|max:255',
+                'user_id' => 'required|integer|exists:users,id',
+            ]);
+
             $veiculo = Veiculo::create($validated);
-            return response()->json($veiculo, 201);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'error' => 'Erro ao criar veículo',
-                'detail' => $e->getMessage(),
-            ], 500);
+
+            return $this->success($veiculo, 201);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'Dados inválidos',
+                422,
+                ['errors' => $e->errors()]
+            );
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao cadastrar veículo', [
+                'payload' => $request->all(),
+            ]);
         }
     }
 
-    public function edit(Request $request, $id)
+    public function edit(Request $request, int $id)
     {
         $veiculo = Veiculo::find($id);
 
         if (!$veiculo) {
-            return response()->json(['error' => 'Veículo não encontrado'], 404);
+            return $this->error('Veículo não encontrado', 404);
         }
-
-        $validated = $request->validate([
-            'nome' => 'required|string|max:255',
-            'tipo' => 'required|string|max:255',
-        ]);
 
         try {
+            $validated = $request->validate([
+                'nome' => 'required|string|max:255',
+                'tipo' => 'required|string|max:255',
+            ]);
+
             $veiculo->update($validated);
-            return response()->json($veiculo, 200);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'error' => 'Erro ao atualizar veículo',
-                'detail' => $e->getMessage(),
-            ], 500);
+
+            return $this->success($veiculo);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'Dados inválidos',
+                422,
+                ['errors' => $e->errors()]
+            );
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao atualizar veículo', [
+                'id' => $id,
+            ]);
         }
     }
 
-    public function delete($id)
+    public function delete(int $id)
     {
         $veiculo = Veiculo::find($id);
 
         if (!$veiculo) {
-            return response()->json(['error' => 'Veículo não encontrado'], 404);
+            return $this->error('Veículo não encontrado', 404);
         }
 
-        $veiculo->delete();
-        return response()->json(['message' => 'Veículo excluído com sucesso'], 200);
+        try {
+            $veiculo->delete();
+
+            return $this->success(['message' => 'Veículo excluído com sucesso']);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao excluir veículo', [
+                'id' => $id,
+            ]);
+        }
     }
 
     public function filterVeiculos(Request $request)
     {
-        $ids = $request->input('ids');
+        try {
+            $ids = $request->validate([
+                'ids' => 'required|array|min:1',
+                'ids.*' => 'integer',
+            ])['ids'];
 
-        if (!is_array($ids) || empty($ids)) {
-            return response()->json(['error' => 'IDs inválidos'], 400);
+            $data = Veiculo::whereIn('id', $ids)->get();
+
+            return $this->success($data);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'IDs inválidos',
+                422,
+                ['errors' => $e->errors()]
+            );
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao filtrar veículos');
         }
-
-        $veiculos = Veiculo::whereIn('id', $ids)->get();
-        return response()->json($veiculos, 200);
     }
 }

@@ -2,107 +2,140 @@
 
 namespace App\Http\Controllers\Utilities;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Utilities\Links;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
-class LinksController extends Controller
+class LinksController extends BaseApiController
 {
     public function index()
     {
-        return response()->json(['status' => 'OK']);
+        return $this->success(['status' => 'OK']);
     }
 
     public function search()
     {
-        return response()->json(
-            Links::orderByDesc('last_update')->get(),
-            200
-        );
+        try {
+            $links = Links::orderByDesc('last_update')->get();
+            return $this->success($links);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao listar links');
+        }
     }
 
-    public function filter($id)
+    public function filter(int $id)
     {
         $link = Links::find($id);
 
         if (!$link) {
-            return response()->json(['error' => 'Link não encontrado'], 404);
+            return $this->error('Link não encontrado', 404);
         }
 
-        return response()->json($link, 200);
+        return $this->success($link);
     }
 
     public function cad(Request $request)
     {
-        $validated = $request->validate([
-            'title'   => 'required|string|max:255',
-            'desc'    => 'nullable|string|max:255',
-            'link'    => 'nullable|string',
-            'user_id' => 'required|integer|exists:users,id',
-        ]);
-
         try {
-            return DB::transaction(function () use ($validated) {
-                $link = Links::create($validated);
-                return response()->json($link, 201);
-            });
-        } catch (\Throwable $e) {
-            return response()->json([
-                'error' => 'Erro ao adicionar link',
-                'detail' => $e->getMessage()
-            ], 500);
+            $validated = $request->validate([
+                'title'   => 'required|string|max:255',
+                'desc'    => 'nullable|string|max:255',
+                'link'    => 'nullable|string|max:500',
+                'user_id' => 'required|integer|exists:users,id',
+            ]);
+
+            $link = Links::create($validated);
+
+            return $this->success($link, 201);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'Dados inválidos',
+                422,
+                ['errors' => $e->errors()]
+            );
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao cadastrar link', [
+                'payload' => $request->all(),
+            ]);
         }
     }
 
-    public function edit(Request $request, $id)
+    public function edit(Request $request, int $id)
     {
         $link = Links::find($id);
 
         if (!$link) {
-            return response()->json(['error' => 'Link não encontrado'], 404);
+            return $this->error('Link não encontrado', 404);
         }
 
-        $validated = $request->validate([
-            'title'   => 'required|string|max:255',
-            'desc'    => 'nullable|string|max:255',
-            'link'    => 'nullable|string',
-            'user_id' => 'required|integer|exists:users,id',
-        ]);
+        try {
+            $validated = $request->validate([
+                'title'   => 'required|string|max:255',
+                'desc'    => 'nullable|string|max:255',
+                'link'    => 'nullable|string|max:500',
+                'user_id' => 'required|integer|exists:users,id',
+            ]);
+
+            $link->update($validated);
+
+            return $this->success($link);
+
+        } catch (ValidationException $e) {
+            return $this->error(
+                'Dados inválidos',
+                422,
+                ['errors' => $e->errors()]
+            );
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao atualizar link', [
+                'id' => $id,
+            ]);
+        }
+    }
+
+    public function delete(int $id)
+    {
+        $link = Links::find($id);
+
+        if (!$link) {
+            return $this->error('Link não encontrado', 404);
+        }
 
         try {
-            return DB::transaction(function () use ($link, $validated) {
-                $link->update($validated);
-                return response()->json($link, 200);
-            });
-        } catch (\Throwable $e) {
-            return response()->json([
-                'error' => 'Erro ao atualizar link',
-                'detail' => $e->getMessage()
-            ], 500);
+            $link->delete();
+
+            return $this->success([
+                'message' => 'Link excluído com sucesso'
+            ]);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao excluir link', [
+                'id' => $id,
+            ]);
         }
     }
 
     /**
-     * ⚠️ CUIDADO: método destrutivo
+     * ⚠️ EXTREMO CUIDADO
+     * Ideal bloquear por role ou ambiente
      */
     public function destroy()
     {
-        Links::query()->delete();
-        return response()->json([
-            'message' => 'Todos os links foram excluídos com sucesso'
-        ], 200);
-    }
+        try {
+            Links::truncate();
 
-    public function delete($id)
-    {
-        $link = Links::find($id);
+            return $this->success([
+                'message' => 'Todos os links foram excluídos'
+            ]);
 
-        if (!$link) {
-            return response()->json(['error' => 'Link não encontrado'], 404);
+        } catch (Throwable $e) {
+            return $this->exception($e, 'Erro ao limpar links');
         }
-
-        $link->delete();
-        return response()->json(['message' => 'Link excluído com sucesso'], 200);
     }
 }

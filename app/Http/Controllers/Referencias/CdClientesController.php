@@ -2,52 +2,61 @@
 
 namespace App\Http\Controllers\Referencias;
 
-use App\Http\Controllers\Controller;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Referencias\CdCliente;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
-class CdClientesController extends Controller
+class CdClientesController extends BaseApiController
 {
     public function index()
     {
-        return response()->json(['status' => 'OK']);
+        return $this->success(null);
     }
 
-    /**
-     * Lista todos os CDs
-     * Ordem explícita para evitar comportamento indefinido no PostgreSQL
-     */
     public function search()
     {
         try {
             $cds = CdCliente::orderBy('id')->get();
-            return response()->json($cds, 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erro ao buscar CDs',
-                'details' => $e->getMessage()
-            ], 500);
+
+            Log::info('[CD] Lista carregada', [
+                'total' => $cds->count(),
+                'user_id' => auth()->id(),
+            ]);
+
+            return $this->success($cds);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[CD] Erro ao listar CDs',
+                $this->baseContext()
+            );
         }
     }
 
-    public function filter($id)
+    public function filter(int $id)
     {
-        $cd = CdCliente::find($id);
+        try {
+            $cd = CdCliente::find($id);
 
-        if (!$cd) {
-            return response()->json(['error' => 'CD não encontrado'], 404);
+            if (!$cd) {
+                return $this->error('CD não encontrado', 404);
+            }
+
+            return $this->success($cd);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[CD] Erro ao buscar CD',
+                array_merge($this->baseContext(), ['id' => $id])
+            );
         }
-
-        return response()->json($cd, 200);
     }
 
-    /**
-     * Criação
-     * Validação forte para FK (PostgreSQL não perdoa)
-     */
     public function cad(Request $request)
     {
-        $validated = $request->validate([
+        $data = $request->validate([
             'cliente_id'  => 'required|integer|exists:clientes,id',
             'nome_filial' => 'required|string|max:255',
             'cidade'      => 'required|string|max:100',
@@ -55,74 +64,100 @@ class CdClientesController extends Controller
         ]);
 
         try {
-            $cd = CdCliente::create($validated);
-            return response()->json($cd, 201);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erro ao adicionar CD',
-                'details' => $e->getMessage()
-            ], 500);
+            $cd = CdCliente::create($data);
+
+            Log::info('[CD] Criado', [
+                'id' => $cd->id,
+                'user_id' => auth()->id(),
+            ]);
+
+            return $this->success($cd, 201);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[CD] Erro ao criar CD',
+                array_merge($this->baseContext(), $data)
+            );
         }
     }
 
-    /**
-     * Atualização
-     */
-    public function edit(Request $request, $id)
+    public function edit(Request $request, int $id)
     {
-        $cd = CdCliente::find($id);
-
-        if (!$cd) {
-            return response()->json(['error' => 'CD não encontrado'], 404);
-        }
-
-        $validated = $request->validate([
+        $data = $request->validate([
             'nome_filial' => 'required|string|max:255',
             'cidade'      => 'required|string|max:100',
             'estado'      => 'required|string|size:2',
         ]);
 
         try {
-            $cd->update($validated);
-            return response()->json($cd, 200);
-        } catch (\Exception $e) {
-            return response()->json([
-                'error' => 'Erro ao atualizar CD',
-                'details' => $e->getMessage()
-            ], 500);
+            $cd = CdCliente::find($id);
+
+            if (!$cd) {
+                return $this->error('CD não encontrado', 404);
+            }
+
+            $cd->update($data);
+
+            Log::info('[CD] Atualizado', [
+                'id' => $id,
+                'user_id' => auth()->id(),
+            ]);
+
+            return $this->success($cd);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[CD] Erro ao atualizar CD',
+                array_merge($this->baseContext(), ['id' => $id])
+            );
         }
     }
 
-    /**
-     * Exclusão
-     */
-    public function delete($id)
+    public function delete(int $id)
     {
-        $cd = CdCliente::find($id);
+        try {
+            $cd = CdCliente::find($id);
 
-        if (!$cd) {
-            return response()->json(['error' => 'CD não encontrado'], 404);
+            if (!$cd) {
+                return $this->error('CD não encontrado', 404);
+            }
+
+            $cd->delete();
+
+            Log::warning('[CD] Excluído', [
+                'id' => $id,
+                'user_id' => auth()->id(),
+            ]);
+
+            return $this->success(['message' => 'CD excluído com sucesso']);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[CD] Erro ao excluir CD',
+                array_merge($this->baseContext(), ['id' => $id])
+            );
         }
-
-        $cd->delete();
-        return response()->json(['message' => 'CD excluído com sucesso'], 200);
     }
 
-    /**
-     * Filtro por lista de IDs
-     * PostgreSQL-safe
-     */
     public function filterCds(Request $request)
     {
-        $validated = $request->validate([
+        $data = $request->validate([
             'ids'   => 'required|array|min:1',
             'ids.*' => 'integer',
         ]);
 
-        $cds = CdCliente::whereIn('id', $validated['ids'])
-            ->orderBy('id')
-            ->get();
+        try {
+            $cds = CdCliente::whereIn('id', $data['ids'])
+                ->orderBy('id')
+                ->get();
 
-        return response()->json($cds, 200);
+            return $this->success($cds);
+        } catch (Throwable $e) {
+            return $this->exception(
+                $e,
+                '[CD] Erro ao filtrar múltiplos',
+                array_merge($this->baseContext(), $data)
+            );
+        }
     }
 }

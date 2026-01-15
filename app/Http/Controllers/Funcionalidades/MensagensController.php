@@ -2,16 +2,17 @@
 
 namespace App\Http\Controllers\Funcionalidades;
 
-use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
+use App\Http\Controllers\BaseApiController;
 use App\Models\Funcionalidades\Mensagem;
-use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
-class MensagensController extends Controller
+class MensagensController extends BaseApiController
 {
     public function index()
     {
-        return response()->json(['status' => 'OK']);
+        return $this->success(['status' => 'OK']);
     }
 
     /**
@@ -19,27 +20,29 @@ class MensagensController extends Controller
      */
     public function search()
     {
-        $mensagens = Mensagem::with([
-                'user:id,name',
-                'cliente:id,nome'
-            ])
-            ->orderByDesc('last_update')
-            ->get();
+        try {
+            $mensagens = Mensagem::with([
+                    'user:id,name',
+                    'cliente:id,nome'
+                ])
+                ->orderByDesc('last_update')
+                ->get()
+                ->map(fn ($m) => [
+                    'id'          => $m->id,
+                    'cliente_id'  => $m->cliente_id,
+                    'cliente'     => $m->cliente?->nome,
+                    'title'       => $m->title,
+                    'texto'       => $m->texto,
+                    'user_id'     => $m->user_id,
+                    'user'        => $m->user?->name,
+                    'last_update' => $m->last_update,
+                ]);
 
-        $result = $mensagens->map(function ($mensagem) {
-            return [
-                'id'          => $mensagem->id,
-                'cliente_id'  => $mensagem->cliente_id,
-                'cliente'     => $mensagem->cliente?->nome,
-                'title'       => $mensagem->title,
-                'texto'       => $mensagem->texto,
-                'user_id'     => $mensagem->user_id,
-                'user'        => $mensagem->user?->name,
-                'last_update' => $mensagem->last_update,
-            ];
-        });
+            return $this->success($mensagens);
 
-        return response()->json($result, 200);
+        } catch (Throwable $e) {
+            return $this->exception($e, '[MENSAGENS] Erro ao listar');
+        }
     }
 
     /**
@@ -47,19 +50,32 @@ class MensagensController extends Controller
      */
     public function cad(Request $request)
     {
-        $validated = $request->validate([
-            'cliente_id' => 'nullable|integer|exists:clientes,id',
-            'title'      => 'required|string|max:255',
-            'texto'      => 'nullable|string',
-            'user_id'    => 'required|integer|exists:users,id',
-        ]);
+        try {
+            $data = $request->validate([
+                'cliente_id' => 'nullable|integer|exists:clientes,id',
+                'title'      => 'required|string|max:255',
+                'texto'      => 'nullable|string',
+                'user_id'    => 'required|integer|exists:users,id',
+            ]);
 
-        $mensagem = Mensagem::create($validated);
+            $mensagem = Mensagem::create($data);
 
-        return response()->json([
-            'message' => 'Mensagem criada com sucesso',
-            'id'      => $mensagem->id,
-        ], 201);
+            return $this->success([
+                'id' => $mensagem->id,
+            ], 201);
+
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Dados inválidos',
+                'errors'  => $e->errors(),
+            ], 422);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, '[MENSAGENS] Erro ao criar', [
+                'payload' => $request->all(),
+            ]);
+        }
     }
 
     /**
@@ -67,14 +83,21 @@ class MensagensController extends Controller
      */
     public function delete(int $id)
     {
-        $mensagem = Mensagem::find($id);
+        try {
+            $mensagem = Mensagem::find($id);
 
-        if (!$mensagem) {
-            return response()->json(['error' => 'Mensagem não encontrada'], 404);
+            if (!$mensagem) {
+                return $this->error('Mensagem não encontrada', 404);
+            }
+
+            $mensagem->delete();
+
+            return $this->success(['message' => 'Mensagem excluída']);
+
+        } catch (Throwable $e) {
+            return $this->exception($e, '[MENSAGENS] Erro ao excluir', [
+                'id' => $id,
+            ]);
         }
-
-        $mensagem->delete();
-
-        return response()->json(['message' => 'Mensagem excluída com sucesso'], 200);
     }
 }
