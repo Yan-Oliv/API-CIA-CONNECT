@@ -12,16 +12,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        // Apenas trustProxies, NÃO trustHosts
         $middleware->trustProxies('*');
-        $middleware->trustHosts(['*']);
-        //
+        
+        // Remova ou comente esta linha:
+        // $middleware->trustHosts(['*']);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //
     })->create();
-
-    $app->singleton(
-        Illuminate\Contracts\Console\Kernel::class,
-        App\Console\Kernel::class
-    );
-    

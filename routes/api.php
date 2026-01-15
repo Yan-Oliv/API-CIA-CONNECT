@@ -82,6 +82,10 @@ Route::get('/debug-base-model', fn () =>
         : 'BaseModel NOT FOUND'
 );
 
+Route::options('/{any}', function () {
+    return response()->noContent();
+})->where('any', '.*');
+
 /*
 |--------------------------------------------------------------------------
 | CONFIGURAÇÕES GLOBAIS (PUBLIC)
@@ -346,11 +350,6 @@ Route::middleware('auth:sanctum')->group(function () {
 |		404 ROUTE
 |---------------------------------------------------------------------
 */
-
-Route::options('/{any}', function () {
-    return response()->noContent();
-})->where('any', '.*');
-
 
 Route::any('/{any}', function () {
     return response()->json(['message' => 'Not found'], 404);
