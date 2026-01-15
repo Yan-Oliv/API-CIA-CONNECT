@@ -88,15 +88,37 @@ Route::get('/test', function() {
 // Rota de teste de DB - sem autenticação
 Route::get('/test-db', function() {
     try {
-        DB::connection()->getPdo();
+        // Teste conexão PDO
+        $pdo = DB::connection()->getPdo();
+        $database = DB::connection()->getDatabaseName();
+        
+        // Teste query simples
+        $result = DB::select('SELECT version() as version');
+        
         return response()->json([
             'db_status' => 'connected',
-            'database' => DB::connection()->getDatabaseName(),
+            'database' => $database,
+            'pgsql_version' => $result[0]->version ?? 'unknown',
+            'env' => [
+                'db_host' => env('DB_HOST'),
+                'db_port' => env('DB_PORT'),
+                'db_database' => env('DB_DATABASE'),
+                'db_username' => env('DB_USERNAME'),
+                'db_sslmode' => env('DB_SSLMODE'),
+            ],
         ]);
     } catch (\Exception $e) {
         return response()->json([
             'db_status' => 'error',
-            'error' => $e->getMessage(),
+            'error_message' => $e->getMessage(),
+            'error_code' => $e->getCode(),
+            'env_debug' => [
+                'db_host' => env('DB_HOST'),
+                'db_port' => env('DB_PORT'),
+                'db_database' => env('DB_DATABASE'),
+                'db_username' => env('DB_USERNAME'),
+                'app_debug' => env('APP_DEBUG'),
+            ],
         ], 500);
     }
 });
