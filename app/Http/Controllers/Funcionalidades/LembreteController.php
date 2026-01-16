@@ -68,12 +68,16 @@ class LembreteController extends BaseApiController
     public function filter(Request $r, int $id)
     {
         try {
-            $userId = (int) $r->query('user_id');
+            $userId = (int) $r->query('user_id') ?? $r->input('user_id');
+            
+            if (!$userId) {
+                return $this->error('user_id é obrigatório', 422);
+            }
 
             $lembrete = $this->visibles($userId)->find($id);
 
             if (!$lembrete) {
-                return $this->error('Lembrete não encontrado', 404);
+                return $this->error('Lembrete não encontrado ou não visível para este usuário', 404);
             }
 
             return $this->success($lembrete);
