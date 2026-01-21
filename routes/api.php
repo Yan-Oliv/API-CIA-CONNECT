@@ -374,6 +374,7 @@ Route::middleware(['auth:sanctum'])->prefix('config')->group(function () {
 | AUTENTICAÇÃO (PUBLIC)
 |--------------------------------------------------------------------------
 */
+// Rota de login - PÚBLICA
 Route::match(['get', 'post'], '/login', [AuthController::class, 'login'])->name('login');
 Route::put('/users/{id}/rec', [UsersController::class, 'resetPasswordByEmail']);
 
@@ -382,10 +383,23 @@ Route::put('/users/{id}/rec', [UsersController::class, 'resetPasswordByEmail']);
 | AUTENTICAÇÃO (PROTECTED)
 |--------------------------------------------------------------------------
 */
-Route::middleware('auth:sanctum')->group(function () {
+Route::prefix('auth')->middleware('auth:sanctum')->group(function () {
+    // Validação de token (mantida para compatibilidade)
     Route::get('/validate', [AuthController::class, 'validateToken']);
+    
+    // Logout por dispositivo
     Route::post('/logout', [AuthController::class, 'logout']);
+    
+    // Listar sessões ativas do usuário
+    Route::get('/sessions', [AuthController::class, 'listSessions']);
+    
+    // Revogar sessão específica
+    Route::delete('/sessions/{deviceId}', [AuthController::class, 'revokeSession']);
 });
+
+Route::get('/validate', [AuthController::class, 'validateToken'])
+    ->middleware('auth:sanctum')
+    ->name('validate.legacy');
 
 /*
 |--------------------------------------------------------------------------

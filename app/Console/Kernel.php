@@ -15,8 +15,11 @@ class Kernel extends ConsoleKernel
     protected function schedule(Schedule $schedule)
     {
         $schedule->command('backup:consultas')->dailyAt('00:00');
-        $schedule->command('rastreio:delete-old-finalized')->dailyAt('02:00');
-        $schedule->command('lembrete:delete-old-done')->dailyAt('03:00');
+
+        // Limpar tokens expirados diariamente à meia-noite
+        $schedule->call(function () {
+            \App\Models\PersonalAccessToken::where('expires_at', '<', now())->delete();
+        })->daily();
     }
 
     protected function commands()
