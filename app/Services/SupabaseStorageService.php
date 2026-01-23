@@ -3,24 +3,44 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class SupabaseStorageService
 {
-    protected string $url;
-    protected string $key;
+    protected ?string $url;
+    protected ?string $key;
     protected string $bucket;
 
     public function __construct()
     {
-        $this->url = rtrim(env('SUPABASE_URL'), '/');
-        $this->key = env('SUPABASE_SERVICE_ROLE_KEY');
-        $this->bucket = env('SUPABASE_BUCKET', 'avatars');
+        // Tente config() primeiro, depois env(), com fallback
+        $this->url = rtrim(
+            config('services.supabase.url', 
+            env('SUPABASE_URL', '')), 
+            '/'
+        );
+        
+        $this->key = config('services.supabase.service_role_key', 
+            env('SUPABASE_SERVICE_ROLE_KEY', null));
+            
+        $this->bucket = config('services.supabase.bucket', 
+            env('SUPABASE_BUCKET', 'avatars'));
+
+        // Se ainda for null, defina como string vazia
+        $this->key = $this->key ?? '';
+        $this->url = $this->url ?? '';
     }
 
     public function uploadAvatar(int $userId, string $base64, string $extension): string
     {
         $fileName = "{$userId}_profile.{$extension}";
-        $path = "avatars/{$fileName}"; // caminho dentro do bucket
+        $path = "avatars/{$fileName}";
+
+        // Se não houver chave, apenas retorne o path sem fazer upload
+        if (empty($this->key)) {
+            Log::warning('SupabaseStorageService: Chave não configurada, skipando upload');
+            return $path;
+        }
 
         $binary = base64_decode($base64);
 
@@ -38,11 +58,15 @@ class SupabaseStorageService
             throw new \Exception('Erro ao enviar imagem para o Supabase Storage: ' . $response->body());
         }
 
-        return $path; // salva só o caminho relativo no DB
+        return $path;
     }
 
     public function getPublicUrl(string $filePath): string
     {
+        if (empty($this->url)) {
+            return "https://via.placeholder.com/150";
+        }
+        
         return "{$this->url}/storage/v1/object/public/{$filePath}";
     }
 

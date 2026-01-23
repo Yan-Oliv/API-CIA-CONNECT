@@ -130,8 +130,8 @@ class AcompanhamentoController extends Controller
     }
 
     /**
-     * UPDATE
-     */
+    * UPDATE
+    */
     public function edit(Request $request, $id)
     {
         try {
@@ -150,6 +150,18 @@ class AcompanhamentoController extends Controller
                 'origem' => 'required|string|max:255',
                 'destino' => 'required|string|max:255',
                 'status' => 'required|string|max:255',
+                'contato_motorista' => 'nullable|string|max:255',
+                'telefone_motorista' => 'nullable|string|max:255',
+                'produto' => 'nullable|string|max:255',
+                'valor_negociado' => 'nullable|string|max:255',
+                'dia_carregamento' => 'nullable|string|max:255',
+                'agenda_descarga' => 'nullable|string|max:255',
+                'data_chegada' => 'nullable|string|max:255',
+                'hora_chegada' => 'nullable|string|max:255',
+                'nome_patrao' => 'nullable|string|max:255',
+                'telefone_patrao' => 'nullable|string|max:255',
+                'veiculo_id' => 'nullable|integer',
+                'user_id' => 'required|exists:users,id',
             ]);
 
             DB::beginTransaction();
