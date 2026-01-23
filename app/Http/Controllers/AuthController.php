@@ -324,8 +324,8 @@ class AuthController extends Controller
     }
 
     /**
-     * LISTAR SESSÕES ATIVAS
-     */
+    * LISTAR SESSÕES ATIVAS - VERSÃO CORRIGIDA
+    */
     public function listSessions(Request $request)
     {
         try {
@@ -341,14 +341,15 @@ class AuthController extends Controller
                         ->orWhere('expires_at', '>', now());
                 })
                 ->select(['id', 'device_id', 'device_name', 'ip_address', 
-                         'last_used_at', 'expires_at', 'created_at'])
+                        'last_used_at', 'expires_at', 'created_at'])
                 ->get()
                 ->map(function ($token) {
+                    // 🔧 **CORREÇÃO: Usar timestamp ISO em vez de diffForHumans**
                     return [
                         'device_id' => $token->device_id,
                         'device_name' => $token->device_name,
                         'ip_address' => $token->ip_address,
-                        'last_used' => $token->last_used_at?->diffForHumans(),
+                        'last_used' => $token->last_used_at?->toISOString(),
                         'expires_at' => $token->expires_at?->toISOString(),
                         'is_current' => $token->device_id === request()->header('X-Device-Id'),
                     ];
