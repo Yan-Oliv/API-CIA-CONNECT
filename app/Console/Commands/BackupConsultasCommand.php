@@ -283,8 +283,11 @@ class BackupConsultasCommand extends Command
         Log::info('📱 [TELEGRAM] Iniciando envio para Telegram');
         
         try {
-            $botToken = env('TELEGRAM_BOT_TOKEN');
-            $chatId = env('TELEGRAM_CHAT_ID');
+            $dotenv = \Dotenv\Dotenv::createImmutable(base_path());
+            $dotenv->safeLoad();
+            
+            $botToken = $_ENV['TELEGRAM_BOT_TOKEN'] ?? env('TELEGRAM_BOT_TOKEN');
+            $chatId = $_ENV['TELEGRAM_CHAT_ID'] ?? env('TELEGRAM_CHAT_ID');
 
             Log::debug('📱 [TELEGRAM] Configurações carregadas', [
                 'bot_token_defined' => !empty($botToken),
