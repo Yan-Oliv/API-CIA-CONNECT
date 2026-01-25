@@ -286,10 +286,15 @@ class BackupConsultasCommand extends Command
             $botToken = env('TELEGRAM_BOT_TOKEN');
             $chatId = env('TELEGRAM_CHAT_ID');
 
-            Log::debug('📱 [TELEGRAM] Verificando configurações', [
+            Log::debug('📱 [TELEGRAM] Configurações carregadas', [
                 'bot_token_defined' => !empty($botToken),
+                'bot_token_first_10_chars' => substr($botToken, 0, 10) . '...',
                 'chat_id_defined' => !empty($chatId),
-                'chat_id_value' => $chatId
+                'chat_id' => $chatId,
+                'file_path' => $filePath,
+                'file_exists' => file_exists($filePath),
+                'is_readable' => is_readable($filePath),
+                'file_size' => file_exists($filePath) ? filesize($filePath) : 0,
             ]);
 
             if (!$botToken) {
@@ -303,7 +308,12 @@ class BackupConsultasCommand extends Command
             }
 
             if (!file_exists($filePath)) {
-                Log::error('❌ [TELEGRAM] Arquivo não encontrado', ['path' => $filePath]);
+                Log::error('❌ [TELEGRAM] Arquivo não encontrado', [
+                    'path' => $filePath,
+                    'realpath' => realpath($filePath),
+                    'cwd' => getcwd(),
+                    'storage_path' => storage_path(),
+                ]);
                 return false;
             }
 
@@ -311,7 +321,8 @@ class BackupConsultasCommand extends Command
             Log::info('📱 [TELEGRAM] Preparando envio', [
                 'arquivo' => basename($filePath),
                 'tamanho_bytes' => $fileSize,
-                'tamanho_mb' => round($fileSize / 1024 / 1024, 2)
+                'tamanho_mb' => round($fileSize / 1024 / 1024, 2),
+                'arquivo_real' => realpath($filePath)
             ]);
 
             // Verificar tamanho máximo do Telegram (50MB)
@@ -323,33 +334,51 @@ class BackupConsultasCommand extends Command
                 return false;
             }
 
+            // Testar leitura do arquivo
+            $fileContent = file_get_contents($filePath);
+            if ($fileContent === false) {
+                Log::error('❌ [TELEGRAM] Não foi possível ler o arquivo', [
+                    'path' => $filePath,
+                    'error' => error_get_last()
+                ]);
+                return false;
+            }
+
+            Log::info('📱 [TELEGRAM] Arquivo lido com sucesso', [
+                'content_length' => strlen($fileContent)
+            ]);
+
             Log::info('📱 [TELEGRAM] Enviando para API do Telegram...');
             
             $response = Http::timeout(120)
                 ->withOptions([
-                    'verify' => false, // Desativa verificação SSL se necessário
+                    'verify' => false, // IMPORTANTE: Para testes
                 ])
                 ->attach(
                     'document',
-                    file_get_contents($filePath),
+                    $fileContent,
                     basename($filePath),
                     ['Content-Type' => 'application/pdf']
                 )
                 ->post("https://api.telegram.org/bot{$botToken}/sendDocument", [
                     'chat_id' => $chatId,
-                    'caption' => '📄 Backup diário das consultas - ' . now()->format('d/m/Y H:i'),
+                    'caption' => '📄 Backup diário das consultas - ' . now()->format('d/m/Y H:i:s'),
+                    'parse_mode' => 'Markdown',
                 ]);
 
-            Log::info('📱 [TELEGRAM] Resposta recebida', [
+            Log::info('📱 [TELEGRAM] Resposta completa', [
                 'status_code' => $response->status(),
-                'success' => $response->successful()
+                'success' => $response->successful(),
+                'headers' => $response->headers(),
+                'body' => $response->body()
             ]);
 
             if ($response->successful()) {
                 $responseData = $response->json();
                 Log::info('✅ [TELEGRAM] Arquivo enviado com sucesso', [
                     'message_id' => $responseData['result']['message_id'] ?? 'N/A',
-                    'file_id' => $responseData['result']['document']['file_id'] ?? 'N/A'
+                    'file_id' => $responseData['result']['document']['file_id'] ?? 'N/A',
+                    'file_name' => $responseData['result']['document']['file_name'] ?? 'N/A'
                 ]);
                 return true;
             } else {
@@ -357,9 +386,22 @@ class BackupConsultasCommand extends Command
                 Log::error('❌ [TELEGRAM] Falha na API do Telegram', [
                     'status_code' => $response->status(),
                     'error_code' => $errorData['error_code'] ?? 'N/A',
-                    'description' => $errorData['description'] ?? $response->body(),
-                    'response_body' => $response->body()
+                    'description' => $errorData['description'] ?? 'N/A',
+                    'response_body' => $response->body(),
+                    'full_response' => $response
                 ]);
+                
+                // Tentar enviar uma mensagem de erro para o Telegram (para debug)
+                try {
+                    Http::post("https://api.telegram.org/bot{$botToken}/sendMessage", [
+                        'chat_id' => $chatId,
+                        'text' => "❌ Erro ao enviar backup: " . ($errorData['description'] ?? 'Erro desconhecido'),
+                        'parse_mode' => 'Markdown'
+                    ]);
+                } catch (\Throwable $e) {
+                    // Ignorar erro secundário
+                }
+                
                 return false;
             }
 
