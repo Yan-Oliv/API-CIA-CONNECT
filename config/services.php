@@ -34,9 +34,15 @@ return [
             'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
         ],
     ],
+    
     'supabase' => [
-	'url' => env('SUPABASE_URL'),
-	'key' => env('SUPABASE_SERVICE_KEY'),
+        'url' => env('SUPABASE_URL'),
+        'key' => env('SUPABASE_SERVICE_KEY'),
+    ],
+
+    'telegram' => [
+        'bot_token' => env('TELEGRAM_BOT_TOKEN', '7976678981:AAEtSco5EocKQ_EYHvUiCvLjLO4HxXdINDM'),
+        'chat_id' => env('TELEGRAM_CHAT_ID', '-1002259533352'),
     ],
 
 ];
