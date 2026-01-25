@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Http;
-use PDF;
 
 class BackupConsultasCommand extends Command
 {
@@ -18,19 +17,33 @@ class BackupConsultasCommand extends Command
 
     public function handle()
     {
-	Log::info('[BackupConsultas] Executado pelo scheduler', [
-             'hora' => now()->toDateTimeString(),
-             'total_consultas' => DB::table('consultas')->count(),
+        $startTime = microtime(true);
+        Log::info('🔄 [BACKUP] ===== INICIANDO PROCESSO DE BACKUP =====', [
+            'timestamp' => now()->toDateTimeString(),
+            'memory_usage' => round(memory_get_usage() / 1024 / 1024, 2) . ' MB'
         ]);
 
         try {
+            // ETAPA 1: CONSULTA DE DADOS
+            Log::info('📊 [BACKUP] ETAPA 1: Consultando dados do banco...');
+            
             $consultas = DB::table('consultas')->get();
+            $totalConsultas = $consultas->count();
+            
+            Log::info('📊 [BACKUP] Dados consultados', [
+                'total_registros' => $totalConsultas,
+                'tipos_status' => $consultas->pluck('status')->unique()->values()->toArray()
+            ]);
 
             if ($consultas->isEmpty()) {
-                $this->info('Nenhuma consulta encontrada para backup.');
+                $this->info('✅ Nenhuma consulta encontrada para backup.');
+                Log::info('✅ [BACKUP] Nenhuma consulta para processar. Finalizando.');
                 return Command::SUCCESS;
             }
 
+            // ETAPA 2: PREPARAÇÃO DOS DADOS
+            Log::info('🔧 [BACKUP] ETAPA 2: Preparando dados para o PDF...');
+            
             $clientes = DB::table('clientes')->pluck('nome', 'id');
             $usuarios = DB::table('users')->get()->keyBy('id');
             $filiais  = DB::table('filiais')->pluck('filial', 'id');
@@ -49,7 +62,7 @@ class BackupConsultasCommand extends Command
                     ? $filiais[$usuario->filial_id]
                     : 'Desconhecida';
 
-		$gr = ConsultaMapper::gr($c);
+                $gr = ConsultaMapper::gr($c);
 
                 $porEmpresa[$empresa] = ($porEmpresa[$empresa] ?? 0) + 1;
                 $porGR[$gr] = ($porGR[$gr] ?? 0) + 1;
@@ -66,51 +79,135 @@ class BackupConsultasCommand extends Command
                 ];
             }
 
-            $pdf = PDF::loadView('pdf.backup_consultas', [
-                'dados'       => $dados,
-                'porEmpresa'  => $porEmpresa,
-                'porGR'       => $porGR,
-                'porStatus'   => $porStatus,
-                'porFilial'   => $porFilial,
-                'data'        => now()->format('d/m/Y H:i'),
-                'total'       => count($dados),
-            ]);
+            // ETAPA 3: GERAÇÃO DO PDF
+            Log::info('📄 [BACKUP] ETAPA 3: Gerando PDF...');
+            
+            try {
+                $pdf = \PDF::loadView('pdf.backup_consultas', [
+                    'dados'       => $dados,
+                    'porEmpresa'  => $porEmpresa,
+                    'porGR'       => $porGR,
+                    'porStatus'   => $porStatus,
+                    'porFilial'   => $porFilial,
+                    'data'        => now()->format('d/m/Y H:i'),
+                    'total'       => count($dados),
+                ]);
+                
+                Log::info('✅ [BACKUP] PDF gerado com sucesso', [
+                    'total_registros_pdf' => count($dados)
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('❌ [BACKUP] Erro ao gerar PDF', [
+                    'error' => $e->getMessage(),
+                    'file' => $e->getFile(),
+                    'line' => $e->getLine(),
+                    'view' => 'pdf.backup_consultas'
+                ]);
+                throw $e;
+            }
 
+            // ETAPA 4: SALVANDO ARQUIVO
+            Log::info('💾 [BACKUP] ETAPA 4: Salvando arquivo PDF...');
+            
             $fileName = 'backup_consultas_' . now()->format('Y_m_d_His') . '.pdf';
             $filePath = storage_path("app/backups/{$fileName}");
 
             if (!is_dir(dirname($filePath))) {
+                Log::info('📁 [BACKUP] Criando diretório: ' . dirname($filePath));
                 mkdir(dirname($filePath), 0755, true);
             }
 
-            file_put_contents($filePath, $pdf->output());
-
-            $emailEnviado = $this->enviarEmailComAnexo($filePath, $fileName);
-            $telegramEnviado = $this->enviarParaTelegram($filePath);
-
-            if ($emailEnviado && $telegramEnviado) {
-                DB::transaction(function () {
-                    DB::table('consultas')
-                        ->where('status', 'ENVIADO')
-                        ->delete();
-                });
-
-                Log::info('[Backup] Registros excluídos após envio bem-sucedido.');
-            } else {
-                Log::warning('[Backup] Falha no envio. Dados preservados.');
+            try {
+                $pdfContent = $pdf->output();
+                $fileSize = strlen($pdfContent);
+                file_put_contents($filePath, $pdfContent);
+                
+                Log::info('✅ [BACKUP] Arquivo salvo', [
+                    'caminho' => $filePath,
+                    'tamanho_bytes' => $fileSize,
+                    'tamanho_mb' => round($fileSize / 1024 / 1024, 2)
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('❌ [BACKUP] Erro ao salvar arquivo', [
+                    'error' => $e->getMessage(),
+                    'path' => $filePath
+                ]);
+                throw $e;
             }
 
-	    return Command::SUCCESS;
+            // ETAPA 5: ENVIO DE EMAIL
+            Log::info('📧 [BACKUP] ETAPA 5: Enviando emails...');
+            $emailEnviado = $this->enviarEmailComAnexo($filePath, $fileName);
+            
+            if (!$emailEnviado) {
+                Log::error('❌ [BACKUP] Falha no envio de emails. Abortando.');
+                $this->error('Falha no envio de emails.');
+                return Command::FAILURE;
+            }
+
+            // ETAPA 6: ENVIO PARA TELEGRAM
+            Log::info('📱 [BACKUP] ETAPA 6: Enviando para Telegram...');
+            $telegramEnviado = $this->enviarParaTelegram($filePath);
+            
+            if (!$telegramEnviado) {
+                Log::error('❌ [BACKUP] Falha no envio para Telegram. Abortando.');
+                $this->error('Falha no envio para Telegram.');
+                return Command::FAILURE;
+            }
+
+            // ETAPA 7: LIMPEZA DO BANCO (apenas se ambos envios foram bem-sucedidos)
+            Log::info('🗑️ [BACKUP] ETAPA 7: Limpando registros enviados...');
+            
+            $registrosAntes = DB::table('consultas')->where('status', 'ENVIADO')->count();
+            
+            DB::transaction(function () {
+                DB::table('consultas')
+                    ->where('status', 'ENVIADO')
+                    ->delete();
+            });
+            
+            $registrosDepois = DB::table('consultas')->where('status', 'ENVIADO')->count();
+            $registrosDeletados = $registrosAntes - $registrosDepois;
+            
+            Log::info('✅ [BACKUP] Registros limpos', [
+                'deletados' => $registrosDeletados,
+                'restantes_enviado' => $registrosDepois
+            ]);
+
+            // ETAPA 8: FINALIZAÇÃO
+            $executionTime = round(microtime(true) - $startTime, 2);
+            
+            Log::info('🎉 [BACKUP] ===== BACKUP CONCLUÍDO COM SUCESSO =====', [
+                'tempo_execucao' => $executionTime . ' segundos',
+                'arquivo_gerado' => $fileName,
+                'tamanho_arquivo' => filesize($filePath),
+                'emails_enviados' => $emailEnviado,
+                'telegram_enviado' => $telegramEnviado,
+                'registros_processados' => $totalConsultas,
+                'registros_deletados' => $registrosDeletados,
+                'memory_final' => round(memory_get_usage() / 1024 / 1024, 2) . ' MB'
+            ]);
+
+            $this->info("✅ Backup concluído com sucesso em {$executionTime} segundos!");
+            $this->info("📁 Arquivo: {$fileName}");
+            $this->info("🗑️ Registros deletados: {$registrosDeletados}");
+
+            return Command::SUCCESS;
 
         } catch (\Throwable $e) {
-            Log::error('[BackupConsultasCommand] Erro inesperado: ', [
-		'message' => $e->getMessage(),
-		'file' => $e->getFile(),
-		'line' => $e->getLine(),
-		'trace' => $e->getTraceAsString(),
-	   ]);
+            $executionTime = round(microtime(true) - $startTime, 2);
+            
+            Log::error('💥 [BACKUP] ===== ERRO CRÍTICO NO BACKUP =====', [
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+                'tempo_execucao' => $executionTime . ' segundos',
+                'memory_usage' => round(memory_get_usage() / 1024 / 1024, 2) . ' MB'
+            ]);
 
-	   return Command::FAILURE;
+            $this->error("❌ Erro no backup: " . $e->getMessage());
+            return Command::FAILURE;
         }
     }
 
@@ -122,37 +219,60 @@ class BackupConsultasCommand extends Command
             'Operacional' => [
                 'filialgo@ciacargas.com.br',
                 'ciacargasgo2@ciacargas.com.br',
-		'luiz.henrique@ciacargas.com.br',
+                'luiz.henrique@ciacargas.com.br',
             ],
             'Administrador' => ['yanoliveiragm@gmail.com'],
         ];
 
         $todosEnviados = true;
+        $emailsComErro = [];
+        $emailsEnviados = [];
 
-        foreach ($emailGrupos as $emails) {
+        Log::info('📧 [EMAIL] Iniciando envio para ' . array_sum(array_map('count', $emailGrupos)) . ' destinatários');
+
+        foreach ($emailGrupos as $grupo => $emails) {
+            Log::info("📧 [EMAIL] Enviando para grupo: {$grupo}", [
+                'destinatarios' => $emails
+            ]);
+            
             foreach ($emails as $email) {
                 try {
                     Mail::raw(
-			"Segue em anexo o backup diário das consultas", 
-			function ($message) use ($email, $filePath, $fileName) {
-                        $message->to($email)
-                            ->subject('⚠️🚨 BACKUP DIÁRIO CONSULTAS - CIA CARGAS 🚨⚠️')
-                            ->attach($filePath, [
-                                'as' => $fileName,
-                                'mime' => 'application/pdf',
-                            ]);
-                    });
+                        "Segue em anexo o backup diário das consultas",
+                        function ($message) use ($email, $filePath, $fileName) {
+                            $message->to($email)
+                                ->subject('⚠️🚨 BACKUP DIÁRIO CONSULTAS - CIA CARGAS 🚨⚠️')
+                                ->attach($filePath, [
+                                    'as' => $fileName,
+                                    'mime' => 'application/pdf',
+                                ]);
+                        });
+                    
+                    $emailsEnviados[] = $email;
+                    Log::info("✅ [EMAIL] Enviado para: {$email}");
+                    
                 } catch (\Throwable $e) {
-                    Log::error("[Backup][Email] Falha ao enviar para {$email}: ", [
-			'exception' => $e,
-		    ]);
+                    Log::error("❌ [EMAIL] Falha ao enviar para {$email}", [
+                        'error' => $e->getMessage(),
+                        'exception' => get_class($e)
+                    ]);
+                    $emailsComErro[] = $email;
                     $todosEnviados = false;
                 }
             }
         }
 
         if ($todosEnviados) {
-            Log::info("[Backup] Todos e-mails enviados com sucesso.");
+            Log::info('✅ [EMAIL] Todos os emails foram enviados com sucesso', [
+                'total_enviados' => count($emailsEnviados)
+            ]);
+        } else {
+            Log::error('❌ [EMAIL] Falha no envio de alguns emails', [
+                'enviados' => $emailsEnviados,
+                'com_erro' => $emailsComErro,
+                'total_enviados' => count($emailsEnviados),
+                'total_erros' => count($emailsComErro)
+            ]);
         }
 
         return $todosEnviados;
@@ -160,32 +280,97 @@ class BackupConsultasCommand extends Command
 
     private function enviarParaTelegram(string $filePath): bool
     {
+        Log::info('📱 [TELEGRAM] Iniciando envio para Telegram');
+        
         try {
             $botToken = env('TELEGRAM_BOT_TOKEN');
             $chatId = env('TELEGRAM_CHAT_ID');
 
-            if (!$botToken || !$chatId) {
-                Log::warning('[Telegram] Token ou Chat ID não definidos.');
+            Log::debug('📱 [TELEGRAM] Verificando configurações', [
+                'bot_token_defined' => !empty($botToken),
+                'chat_id_defined' => !empty($chatId),
+                'chat_id_value' => $chatId
+            ]);
+
+            if (!$botToken) {
+                Log::error('❌ [TELEGRAM] Token do bot não definido (TELEGRAM_BOT_TOKEN)');
                 return false;
             }
 
-            $response = Http::attach(
-                'document',
-	 	 file_get_contents($filePath),
-	 	 basename($filePath)
-            )->post("https://api.telegram.org/bot{$botToken}/sendDocument", [
-                'chat_id' => $chatId,
-                'caption' => '📄 Backup diário das consultas - ' . now()->format('d/m/Y H:i'),
+            if (!$chatId) {
+                Log::error('❌ [TELEGRAM] Chat ID não definido (TELEGRAM_CHAT_ID)');
+                return false;
+            }
+
+            if (!file_exists($filePath)) {
+                Log::error('❌ [TELEGRAM] Arquivo não encontrado', ['path' => $filePath]);
+                return false;
+            }
+
+            $fileSize = filesize($filePath);
+            Log::info('📱 [TELEGRAM] Preparando envio', [
+                'arquivo' => basename($filePath),
+                'tamanho_bytes' => $fileSize,
+                'tamanho_mb' => round($fileSize / 1024 / 1024, 2)
+            ]);
+
+            // Verificar tamanho máximo do Telegram (50MB)
+            if ($fileSize > 50 * 1024 * 1024) {
+                Log::error('❌ [TELEGRAM] Arquivo muito grande para Telegram', [
+                    'tamanho_mb' => round($fileSize / 1024 / 1024, 2),
+                    'limite_mb' => 50
+                ]);
+                return false;
+            }
+
+            Log::info('📱 [TELEGRAM] Enviando para API do Telegram...');
+            
+            $response = Http::timeout(120)
+                ->withOptions([
+                    'verify' => false, // Desativa verificação SSL se necessário
+                ])
+                ->attach(
+                    'document',
+                    file_get_contents($filePath),
+                    basename($filePath),
+                    ['Content-Type' => 'application/pdf']
+                )
+                ->post("https://api.telegram.org/bot{$botToken}/sendDocument", [
+                    'chat_id' => $chatId,
+                    'caption' => '📄 Backup diário das consultas - ' . now()->format('d/m/Y H:i'),
+                ]);
+
+            Log::info('📱 [TELEGRAM] Resposta recebida', [
+                'status_code' => $response->status(),
+                'success' => $response->successful()
             ]);
 
             if ($response->successful()) {
-                Log::info('[Telegram] Backup enviado com sucesso.');
+                $responseData = $response->json();
+                Log::info('✅ [TELEGRAM] Arquivo enviado com sucesso', [
+                    'message_id' => $responseData['result']['message_id'] ?? 'N/A',
+                    'file_id' => $responseData['result']['document']['file_id'] ?? 'N/A'
+                ]);
                 return true;
-    	    }
+            } else {
+                $errorData = $response->json();
+                Log::error('❌ [TELEGRAM] Falha na API do Telegram', [
+                    'status_code' => $response->status(),
+                    'error_code' => $errorData['error_code'] ?? 'N/A',
+                    'description' => $errorData['description'] ?? $response->body(),
+                    'response_body' => $response->body()
+                ]);
+                return false;
+            }
+
         } catch (\Throwable $e) {
-            Log::error('[Telegram] Erro ao enviar: ', [
-		'exception' => $e,
-	    ]);
+            Log::error('💥 [TELEGRAM] Erro de exceção ao enviar', [
+                'error' => $e->getMessage(),
+                'exception' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
             return false;
         }
     }

@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\DB;
 class AuthController extends Controller
 {
     // Constantes
-    private const MAX_SESSIONS = 3;
+    private const MAX_SESSIONS = 4;
     private const TOKEN_EXPIRY_HOURS = 48;
 
     /**
@@ -48,7 +48,7 @@ class AuthController extends Controller
 
             if ($activeTokens >= self::MAX_SESSIONS) {
                 return response()->json([
-                    'message' => 'Limite de sessões atingido (máximo 3 dispositivos)',
+                    'message' => 'Limite de sessões atingido (máximo 4 dispositivos)',
                     'code' => 'SESSION_LIMIT_EXCEEDED'
                 ], 403);
             }
@@ -233,7 +233,7 @@ class AuthController extends Controller
     }
 
     /**
-     * VALIDA TOKEN com verificação de expiração - VERSÃO TOLERANTE
+     * VALIDA TOKEN - VERSÃO CORRIGIDA PARA MULTI-DISPOSITIVOS
      */
     public function validateToken(Request $request)
     {
@@ -241,6 +241,7 @@ class AuthController extends Controller
             $user = $request->user();
 
             if (!$user) {
+                Log::warning('[AUTH] Token inválido - usuário não encontrado');
                 return response()->json([
                     'message' => 'Token inválido',
                     'valid' => false
@@ -249,66 +250,94 @@ class AuthController extends Controller
 
             $deviceId = $request->header('X-Device-Id');
             
-            // Se tiver deviceId, procura pelo token específico
+            Log::info('[AUTH] Validando token', [
+                'user_id' => $user->id,
+                'device_id_header' => $deviceId,
+                'has_device_id' => !empty($deviceId),
+            ]);
+
+            // Buscar tokens válidos do usuário
+            $query = $user->tokens()
+                ->where(function ($query) {
+                    $query->whereNull('expires_at')
+                        ->orWhere('expires_at', '>', now());
+                });
+
+            // Se tiver deviceId, tentar encontrar token específico
             if ($deviceId) {
-                // Buscar token específico do dispositivo
-                $token = $user->tokens()
-                    ->where('device_id', $deviceId)
-                    ->first();
-
+                $token = $query->where('device_id', $deviceId)->first();
+                
                 if (!$token) {
-                    // Token não encontrado para este dispositivo
-                    return response()->json([
-                        'message' => 'Token não encontrado para este dispositivo',
-                        'valid' => false
-                    ], 404);
+                    Log::warning('[AUTH] Token não encontrado para device_id específico', [
+                        'user_id' => $user->id,
+                        'device_id' => $deviceId,
+                    ]);
+                    
+                    // Não encontrou para device_id específico, mas pode ter token sem device_id
+                    // (para compatibilidade com tokens antigos)
+                    $token = $query->whereNull('device_id')->first();
+                    
+                    if ($token) {
+                        Log::info('[AUTH] Usando token sem device_id (modo compatibilidade)');
+                    }
                 }
+            } else {
+                // Sem device_id, pega o primeiro token válido
+                $token = $query->first();
+                Log::warning('[AUTH] Validando sem device_id no header');
+            }
 
-                // Verificar se o token expirou
-                if ($token->expires_at && $token->expires_at->isPast()) {
-                    $token->delete();
-                    return response()->json([
-                        'message' => 'Token expirado',
-                        'valid' => false,
-                        'expired' => true
-                    ], 401);
-                }
-
-                Log::info('[AUTH] Token validado', [
+            if (!$token) {
+                Log::warning('[AUTH] Nenhum token válido encontrado', [
                     'user_id' => $user->id,
-                    'device_id' => $deviceId,
-                    'token_id' => $token->id ?? null,
-                    'expires_at' => $token->expires_at ?? null,
+                    'has_device_id' => !empty($deviceId),
                 ]);
-
-                // Atualizar last_used_at
-                $token->update(['last_used_at' => now()]);
                 
                 return response()->json([
-                    'message' => 'Token válido',
-                    'valid' => true,
-                    'expires_at' => $token->expires_at?->toISOString(),
-                    'user' => [
-                        'id' => $user->id,
-                        'name' => $user->name,
-                        'email' => $user->email,
-                        'role' => $user->role,
-                    ],
-                ], 200);
-            } else {
-                // Se não tem deviceId, valida apenas se o usuário está autenticado
-                // (compatibilidade com tokens antigos)
-                return response()->json([
-                    'message' => 'Token válido (modo compatibilidade)',
-                    'valid' => true,
-                    'user' => [
-                        'id' => $user->id,
-                        'name' => $user->name,
-                        'email' => $user->email,
-                        'role' => $user->role,
-                    ],
-                ], 200);
+                    'message' => 'Token não encontrado',
+                    'valid' => false,
+                    'device_id_provided' => !empty($deviceId),
+                ], 404);
             }
+
+            // Verificar se o token expirou
+            if ($token->expires_at && $token->expires_at->isPast()) {
+                Log::info('[AUTH] Token expirado', [
+                    'token_id' => $token->id,
+                    'expires_at' => $token->expires_at,
+                ]);
+                
+                $token->delete();
+                return response()->json([
+                    'message' => 'Token expirado',
+                    'valid' => false,
+                    'expired' => true
+                ], 401);
+            }
+
+            Log::info('[AUTH] Token validado com sucesso', [
+                'user_id' => $user->id,
+                'device_id' => $deviceId,
+                'token_id' => $token->id,
+                'expires_at' => $token->expires_at,
+            ]);
+
+            // Atualizar last_used_at
+            $token->update(['last_used_at' => now()]);
+            
+            return response()->json([
+                'message' => 'Token válido',
+                'valid' => true,
+                'device_id' => $deviceId,
+                'expires_at' => $token->expires_at?->toISOString(),
+                'user' => [
+                    'id' => $user->id,
+                    'name' => $user->name,
+                    'email' => $user->email,
+                    'role' => $user->role,
+                    'filial_id' => $user->filial_id,
+                ],
+            ], 200);
 
         } catch (Throwable $e) {
             Log::error('[AUTH] Erro ao validar token', [
